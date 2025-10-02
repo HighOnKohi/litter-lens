@@ -20,9 +20,9 @@ class _MoreTabState extends State<MoreTab> {
     super.dispose();
   }
 
-  void _Submit() {
-    final username = _postNameController.text;
-    final password = _postDetailController.text;
+  void _submit() {
+    // final username = _postNameController.text;
+    // final password = _postDetailController.text;
 
     // if (username == "admin" && password == "1234") {
     //   ScaffoldMessenger.of(
@@ -138,7 +138,7 @@ class _MoreTabState extends State<MoreTab> {
                               ),
                               const SizedBox(height: 24),
                               ElevatedButton(
-                                onPressed: _Submit,
+                                onPressed: _submit,
                                 style: ElevatedButton.styleFrom(
                                   textStyle: const TextStyle(
                                     fontSize: 20,

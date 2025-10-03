@@ -70,14 +70,14 @@ flutter:
 
 flutter_native_splash:
   color: "#ffffff" # background color
-  image: assets/images/litter_lens_logo.png # splash logo
+  image: assets/images/app-icon.png # splash logo
   android: true
   ios: true
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/litter_lens_logo.png"
+  image_path: "assets/images/app-icon.png"
 
   # To add assets to your application, add an assets section, like this:
   # assets:

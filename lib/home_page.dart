@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:litter_lens/tabs/about.dart';
 import 'package:litter_lens/tabs/analytics.dart';
 import 'package:litter_lens/tabs/guide.dart';
@@ -54,10 +55,15 @@ class _HomePageState extends State<HomePage> {
         leading: (_selectedIndex <= 4)
             ? Builder(
                 builder: (context) => IconButton(
-                  icon: Image.asset(
-                    "assets/images/litter_lens_logo_alt.png",
+                  icon: SvgPicture.asset(
+                    'assets/images/logo.svg',
                     width: 30,
                     height: 30,
+                    fit: BoxFit.contain,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.white,
+                      BlendMode.srcIn,
+                    ),
                   ),
                   onPressed: () {
                     Scaffold.of(context).openDrawer();
@@ -86,10 +92,15 @@ class _HomePageState extends State<HomePage> {
           ),
           BottomNavigationBarItem(icon: Icon(Icons.adb_rounded), label: "Test"),
           BottomNavigationBarItem(
-            icon: Image.asset(
-              "assets/images/litter_lens_logo.png",
+            icon: SvgPicture.asset(
+              'assets/images/logo.svg',
               width: 25,
               height: 25,
+              fit: BoxFit.contain,
+              colorFilter: const ColorFilter.mode(
+                Color(0xFF0B8A4D),
+                BlendMode.srcIn,
+              ),
             ),
             label: "More",
           ),

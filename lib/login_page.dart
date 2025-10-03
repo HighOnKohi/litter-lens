@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:litter_lens/theme.dart';
 import 'home_page.dart';
 
@@ -54,11 +55,16 @@ class _LoginPageState extends State<LoginPage> {
                           color: Colors.black,
                         ),
                       ),
-                      Image.asset(
-                        'assets/images/litter_lens_logo.png',
+
+                      SvgPicture.asset(
+                        'assets/images/logo.svg',
                         width: 150,
                         height: 150,
                         fit: BoxFit.contain,
+                        colorFilter: const ColorFilter.mode(
+                          Color(0xFF0B8A4D),
+                          BlendMode.srcIn,
+                        ),
                       ),
                     ],
                   ),

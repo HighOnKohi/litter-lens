@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:litter_lens/theme.dart';
 
-void LikePost() {}
+void likePost() {}
 
-void CommentOnPost() {}
+void commentOnPost() {}
 
-void SharePost() {}
+void sharePost() {}
 
 class PostCard extends StatelessWidget {
   final String username;
@@ -121,17 +121,17 @@ class PostCard extends StatelessWidget {
                 InteractionTextButton(
                   label: "Like",
                   icon: Icons.thumb_up_rounded,
-                  onPressed: LikePost,
+                  onPressed: likePost,
                 ),
                 InteractionTextButton(
                   label: "Comment",
                   icon: Icons.comment_rounded,
-                  onPressed: CommentOnPost,
+                  onPressed: commentOnPost,
                 ),
                 InteractionTextButton(
                   label: "Share",
                   icon: Icons.share_rounded,
-                  onPressed: SharePost,
+                  onPressed: sharePost,
                 ),
               ],
             ),

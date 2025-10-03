@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:litter_lens/login_page.dart';
-import 'package:litter_lens/tabs/profile.dart';
+// import 'package:litter_lens/tabs/profile.dart';
+// import 'package:litter_lens/functions/more_tab_functions.dart';
 
 class MoreTab extends StatefulWidget {
-  const MoreTab({super.key});
+  final void Function(int) onNavigateTo;
+
+  const MoreTab({super.key, required this.onNavigateTo});
 
   @override
   State<MoreTab> createState() => _MoreTabState();
@@ -20,21 +23,21 @@ class _MoreTabState extends State<MoreTab> {
     super.dispose();
   }
 
-  void _submit() {
-    // final username = _postNameController.text;
-    // final password = _postDetailController.text;
+  // void _submit() {
+  //   // final username = _postNameController.text;
+  //   // final password = _postDetailController.text;
 
-    // if (username == "admin" && password == "1234") {
-    //   ScaffoldMessenger.of(
-    //     context,
-    //   ).showSnackBar(const SnackBar(content: Text("Login successful!")));
-    //   Navigator.pop(context); // close the dialog
-    // } else {
-    //   ScaffoldMessenger.of(context).showSnackBar(
-    //     const SnackBar(content: Text("Invalid username or password")),
-    //   );
-    // }
-  }
+  //   // if (username == "admin" && password == "1234") {
+  //   //   ScaffoldMessenger.of(
+  //   //     context,
+  //   //   ).showSnackBar(const SnackBar(content: Text("Login successful!")));
+  //   //   Navigator.pop(context); // close the dialog
+  //   // } else {
+  //   //   ScaffoldMessenger.of(context).showSnackBar(
+  //   //     const SnackBar(content: Text("Invalid username or password")),
+  //   //   );
+  //   // }
+  // }
 
   Widget buildSectionTitle(String title) {
     return Padding(
@@ -87,12 +90,7 @@ class _MoreTabState extends State<MoreTab> {
                   Icons.person,
                   "Account",
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ProfileTab(),
-                      ),
-                    );
+                    widget.onNavigateTo(9);
                   },
                 ),
               ],
@@ -109,69 +107,6 @@ class _MoreTabState extends State<MoreTab> {
             child: Column(
               children: [
                 buildMoreTile(Icons.analytics_rounded, "Analytics"),
-                buildMoreTile(
-                  Icons.post_add_rounded,
-                  "Create Post",
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (BuildContext context) {
-                        return AlertDialog(
-                          title: const Text("Create Post"),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min, // important
-                            children: [
-                              TextField(
-                                controller: _postNameController,
-                                decoration: const InputDecoration(
-                                  labelText: "Title",
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              TextField(
-                                controller: _postDetailController,
-                                decoration: const InputDecoration(
-                                  labelText: "Details",
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              ElevatedButton(
-                                onPressed: _submit,
-                                style: ElevatedButton.styleFrom(
-                                  textStyle: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 30,
-                                    vertical: 15,
-                                  ),
-                                ),
-                                child: const Text("Submit"),
-                              ),
-                            ],
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                              },
-                              style: TextButton.styleFrom(
-                                textStyle: const TextStyle(
-                                  fontSize: 20,
-                                  color: Color.fromARGB(255, 255, 35, 35),
-                                ),
-                              ),
-                              child: const Text("Close"),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
                 buildMoreTile(Icons.question_mark_rounded, "Guide"),
               ],
             ),

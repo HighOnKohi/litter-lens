@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:litter_lens/theme.dart';
 import 'home_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -62,24 +63,19 @@ class _LoginPageState extends State<LoginPage> {
                     ],
                   ),
                 ),
-                TextField(
-                  controller: _usernameController,
-                  decoration: const InputDecoration(
-                    labelText: "Username",
-                    border: OutlineInputBorder(),
-                  ),
+                InputField(
+                  inputController: _usernameController,
+                  obscuring: false,
+                  label: "Username",
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: "Password",
-                    border: OutlineInputBorder(),
-                  ),
+                InputField(
+                  inputController: _passwordController,
+                  obscuring: true,
+                  label: "Password",
                 ),
                 const SizedBox(height: 24),
-                ElevatedButton(onPressed: _login, child: const Text("Login")),
+                BigGreenButton(onPressed: _login, text: "Login"),
               ],
             ),
           ),

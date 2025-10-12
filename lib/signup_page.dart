@@ -2,57 +2,72 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:litter_lens/theme.dart';
 import 'home_page.dart';
-import 'signup_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class SignupPage extends StatefulWidget {
+  const SignupPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<SignupPage> createState() => _SignupPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _identifierController = TextEditingController(); // username or email
+class _SignupPageState extends State<SignupPage> {
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _loading = false;
 
-  Future<void> _login() async {
-    final id = _identifierController.text.trim();
+  Future<void> _signUp() async {
+    final username = _usernameController.text.trim();
+    final email = _emailController.text.trim();
     final pw = _passwordController.text;
 
-    if (id.isEmpty || pw.isEmpty) {
-      _showError('Please enter username\/email and password.');
+    if (username.isEmpty || email.isEmpty || pw.isEmpty) {
+      _showError('All fields are required.');
       return;
     }
 
     setState(() => _loading = true);
     try {
-      String email = id;
-      if (!id.contains('@')) {
-        final snap = await FirebaseFirestore.instance
-            .collection('users')
-            .where('username_lc', isEqualTo: id.toLowerCase())
-            .limit(1)
-            .get();
-        if (snap.docs.isEmpty) {
-          throw FirebaseAuthException(code: 'user-not-found', message: 'Username not found.');
-        }
-        email = (snap.docs.first.data()['email'] as String);
+      final existing = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username_lc', isEqualTo: username.toLowerCase())
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) {
+        _showError('Username already in use.');
+        setState(() => _loading = false);
+        return;
       }
 
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pw);
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: pw,
+      );
+
+      await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+        'uid': cred.user!.uid,
+        'email': email,
+        'username': username,
+        'username_lc': username.toLowerCase(),
+        'role': 'homeowner',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await cred.user!.updateDisplayName(username);
 
       if (!mounted) return;
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const HomePage()),
+            (_) => false,
       );
     } on FirebaseAuthException catch (e) {
       _showError(e.message ?? e.code);
     } catch (e) {
-      _showError('Login failed. Please try again.');
+      _showError('Sign up failed. Please try again.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -84,7 +99,7 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                   children: [
                     const Text(
-                      'LOGIN',
+                      'SIGN UP',
                       style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                     const SizedBox(height: 8),
@@ -97,9 +112,15 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 24),
                     InputField(
-                      inputController: _identifierController,
+                      inputController: _usernameController,
                       obscuring: false,
-                      label: 'Username or Email',
+                      label: 'Username',
+                    ),
+                    const SizedBox(height: 16),
+                    InputField(
+                      inputController: _emailController,
+                      obscuring: false,
+                      label: 'Email',
                     ),
                     const SizedBox(height: 16),
                     InputField(
@@ -111,21 +132,14 @@ class _LoginPageState extends State<LoginPage> {
                     BigGreenButton(
                       onPressed: () {
                         if (_loading) return;
-                        _login();
+                        _signUp();
                       },
-                      text: _loading ? 'Logging in...' : 'Login',
+                      text: _loading ? 'Creating account...' : 'Sign Up',
                     ),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const SignupPage()),
-                        );
-                      },
-                      child: const Text('Create an account'),
+                      onPressed: _loading ? null : () => Navigator.pop(context),
+                      child: const Text('Back to login'),
                     ),
                   ],
                 ),

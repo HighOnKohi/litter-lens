@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "489182032783",
+    "project_id": "litterlens-8b63e",
+    "storage_bucket": "litterlens-8b63e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:489182032783:android:17c79920179ba78bfcd1fa",
+        "android_client_info": {
+          "package_name": "com.example.litter_lens"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA3ya5sWAsDEQyFRYy34c44ukgJbQG1tg4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

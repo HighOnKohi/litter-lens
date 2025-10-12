@@ -21,10 +21,10 @@ class BigGreenButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: Colors.white, // text color
+        backgroundColor: AppColors.primaryGreen,
+        foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12), // rounded edges
+          borderRadius: BorderRadius.circular(12),
         ),
         textStyle: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
         padding: const EdgeInsets.symmetric(horizontal: 125, vertical: 20),
@@ -48,10 +48,10 @@ class MediumGreenButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: Colors.white, // text color
+        backgroundColor: AppColors.primaryGreen,
+        foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12), // rounded edges
+          borderRadius: BorderRadius.circular(12),
         ),
         textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
@@ -64,36 +64,31 @@ class MediumGreenButton extends StatelessWidget {
 
 class InputField extends StatelessWidget {
   final TextEditingController inputController;
-  final String label;
   final bool obscuring;
+  final String label;
+  final int? maxLines;
+  final int? minLines;
+
   const InputField({
     super.key,
     required this.inputController,
-    required this.label,
     required this.obscuring,
+    required this.label,
+    this.maxLines = 1,
+    this.minLines,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isObscured = obscuring == true;
     return TextField(
       controller: inputController,
-      obscureText: obscuring,
+      obscureText: isObscured,
+      maxLines: isObscured ? 1 : maxLines,
+      minLines: isObscured ? 1 : minLines,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: Colors.black),
-        hintStyle: const TextStyle(color: Colors.grey),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: const BorderSide(
-            color: AppColors.primaryGreen,
-            width: 2.0,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: const BorderSide(color: Colors.green, width: 2.0),
-        ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+        border: const OutlineInputBorder(),
       ),
     );
   }
@@ -138,7 +133,7 @@ class MediumTextButton extends StatelessWidget {
     return TextButton(
       style: TextButton.styleFrom(
         textStyle: const TextStyle(fontSize: 20),
-        foregroundColor: AppColors.primaryGreen, // text color
+        foregroundColor: AppColors.primaryGreen,
       ),
       onPressed: () {
         onPressed;
@@ -191,7 +186,6 @@ class AppTheme {
       elevation: 2,
     ),
 
-    // BottomNavigationBar  theme
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
       backgroundColor: Colors.white,
       selectedItemColor: AppColors.primaryGreen,

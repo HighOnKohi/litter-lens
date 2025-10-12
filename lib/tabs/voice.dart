@@ -13,6 +13,7 @@ class VoiceTabState extends State<VoiceTab> {
   final SpeechToText _speechToText = SpeechToText();
   bool _speechEnabled = false;
   String _lastWords = '';
+  bool _dialogOpen = false;
 
   @override
   void initState() {
@@ -25,10 +26,10 @@ class VoiceTabState extends State<VoiceTab> {
       onError: (e) => debugPrint("Speech error: $e"),
       onStatus: (status) {
         debugPrint("Speech status: $status");
-        setState(() {}); // refresh UI whenever status changes
+        if (mounted) setState(() {});
       },
     );
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _startListening() async {
@@ -40,13 +41,37 @@ class VoiceTabState extends State<VoiceTab> {
 
   void _stopListening() async {
     await _speechToText.stop();
-    setState(() {});
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showTranscriptDialog(String text) async {
+    if (_dialogOpen || !mounted) return;
+    setState(() => _dialogOpen = true);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('You said'),
+        content: Text(text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) setState(() => _dialogOpen = false);
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {
+    final words = result.recognizedWords.trim();
     setState(() {
-      _lastWords = result.recognizedWords;
+      _lastWords = words;
     });
+
+    if (result.finalResult && words.isNotEmpty) {
+      _showTranscriptDialog(words);
+    }
   }
 
   @override
@@ -78,7 +103,6 @@ class VoiceTabState extends State<VoiceTab> {
             ),
             const SizedBox(height: 20),
           ],
-
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -105,8 +129,6 @@ class VoiceTabState extends State<VoiceTab> {
           ),
         ],
       ),
-
-      /// Big shutter-style mic button at bottom center
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: GestureDetector(
         onTap: _speechToText.isNotListening ? _startListening : _stopListening,

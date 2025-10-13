@@ -22,7 +22,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   int _lastMainIndex = 0;
-  int tanginamo = 4;
+  int tanginamo = 12;
 
   void _onItemTapped(int index) {
     setState(() {
@@ -53,39 +53,49 @@ class _HomePageState extends State<HomePage> {
         title: const Text('Litter Lens'),
         leading: (_selectedIndex <= 4)
             ? Builder(
-          builder: (context) => IconButton(
-            icon: SvgPicture.asset(
-              'assets/images/logo.svg',
-              width: 30,
-              height: 30,
-              fit: BoxFit.contain,
-              colorFilter: const ColorFilter.mode(
-                Colors.white,
-                BlendMode.srcIn,
-              ),
-            ),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        )
+                builder: (context) => IconButton(
+                  icon: SvgPicture.asset(
+                    'assets/images/logo.svg',
+                    width: 30,
+                    height: 30,
+                    fit: BoxFit.contain,
+                    colorFilter: const ColorFilter.mode(
+                      Colors.white,
+                      BlendMode.srcIn,
+                    ),
+                  ),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                ),
+              )
             : IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => setState(() => _selectedIndex = _lastMainIndex),
-        ),
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () =>
+                    setState(() => _selectedIndex = _lastMainIndex),
+              ),
       ),
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           const BottomNavigationBarItem(icon: Icon(Icons.mic), label: 'Voice'),
-          const BottomNavigationBarItem(icon: Icon(Icons.camera_alt_rounded), label: 'Scan'),
-          const BottomNavigationBarItem(icon: Icon(Icons.adb_rounded), label: 'Test'),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.camera_alt_rounded),
+            label: 'Scan',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.adb_rounded),
+            label: 'Test',
+          ),
           BottomNavigationBarItem(
             icon: SvgPicture.asset(
               'assets/images/logo.svg',
               width: 25,
               height: 25,
               fit: BoxFit.contain,
-              colorFilter: const ColorFilter.mode(Color(0xFF0B8A4D), BlendMode.srcIn),
+              colorFilter: const ColorFilter.mode(
+                Color(0xFF0B8A4D),
+                BlendMode.srcIn,
+              ),
             ),
             label: 'More',
           ),

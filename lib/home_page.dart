@@ -22,6 +22,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   int _lastMainIndex = 0;
+  int tanginamo = 4;
 
   void _onItemTapped(int index) {
     setState(() {

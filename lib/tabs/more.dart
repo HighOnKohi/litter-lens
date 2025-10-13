@@ -81,6 +81,7 @@ class _MoreTabState extends State<MoreTab> {
           // Account Settings
           buildSectionTitle("Account"),
           Card(
+            color: Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -101,6 +102,7 @@ class _MoreTabState extends State<MoreTab> {
           // HOA Management
           buildSectionTitle("HOA Management"),
           Card(
+            color: Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -116,6 +118,7 @@ class _MoreTabState extends State<MoreTab> {
           // Help
           buildSectionTitle("Help"),
           Card(
+            color: Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -134,6 +137,7 @@ class _MoreTabState extends State<MoreTab> {
           // Developer Settings
           buildSectionTitle("Developer Settings"),
           Card(
+            color: Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),

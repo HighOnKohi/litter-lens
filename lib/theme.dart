@@ -22,7 +22,7 @@ class BigGreenButton extends StatelessWidget {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: Colors.white, // text color
+        foregroundColor: AppColors.bgColor, // text color
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12), // rounded edges
         ),
@@ -49,7 +49,7 @@ class MediumGreenButton extends StatelessWidget {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: Colors.white, // text color
+        foregroundColor: AppColors.bgColor, // text color
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12), // rounded edges
         ),
@@ -158,7 +158,7 @@ class ActionButton extends StatelessWidget {
     return FloatingActionButton(
       onPressed: onPressed,
       splashColor: AppColors.primaryGreen,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.bgColor,
       child: Icon(icon, color: AppColors.primaryGreen),
     );
   }
@@ -166,7 +166,7 @@ class ActionButton extends StatelessWidget {
 
 class AppTheme {
   static ThemeData lightTheme = ThemeData(
-    scaffoldBackgroundColor: AppColors.bgColor,
+    scaffoldBackgroundColor: Colors.white,
 
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(foregroundColor: AppColors.primaryGreen),
@@ -183,17 +183,17 @@ class AppTheme {
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.primaryGreen,
       titleTextStyle: TextStyle(
-        color: Colors.white,
+        color: AppColors.bgColor,
         fontSize: 20,
         fontWeight: FontWeight.bold,
       ),
-      iconTheme: IconThemeData(color: Colors.white),
+      iconTheme: IconThemeData(color: AppColors.bgColor),
       elevation: 2,
     ),
 
     // BottomNavigationBar  theme
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.bgColor,
       selectedItemColor: AppColors.primaryGreen,
       unselectedItemColor: Colors.grey,
       showUnselectedLabels: true,

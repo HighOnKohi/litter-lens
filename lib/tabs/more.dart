@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:litter_lens/login_page.dart';
-// import 'package:litter_lens/tabs/profile.dart';
-// import 'package:litter_lens/functions/more_tab_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MoreTab extends StatefulWidget {
   final void Function(int) onNavigateTo;
@@ -16,28 +16,37 @@ class _MoreTabState extends State<MoreTab> {
   final TextEditingController _postNameController = TextEditingController();
   final TextEditingController _postDetailController = TextEditingController();
 
+  bool _isAdmin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final doc = await FirebaseFirestore.instance.collection('users').doc(
+          user.uid).get();
+      final role = (doc.data()?['role'] as String?)?.toLowerCase() ??
+          'homeowner';
+      if (mounted) {
+        setState(() {
+          _isAdmin = role == 'admin';
+        });
+      }
+    } catch (_) {
+    }
+  }
+
   @override
   void dispose() {
     _postNameController.dispose();
     _postDetailController.dispose();
     super.dispose();
   }
-
-  // void _submit() {
-  //   // final username = _postNameController.text;
-  //   // final password = _postDetailController.text;
-
-  //   // if (username == "admin" && password == "1234") {
-  //   //   ScaffoldMessenger.of(
-  //   //     context,
-  //   //   ).showSnackBar(const SnackBar(content: Text("Login successful!")));
-  //   //   Navigator.pop(context); // close the dialog
-  //   // } else {
-  //   //   ScaffoldMessenger.of(context).showSnackBar(
-  //   //     const SnackBar(content: Text("Invalid username or password")),
-  //   //   );
-  //   // }
-  // }
 
   Widget buildSectionTitle(String title) {
     return Padding(
@@ -53,12 +62,11 @@ class _MoreTabState extends State<MoreTab> {
     );
   }
 
-  Widget buildMoreTile(
-    IconData icon,
-    String title, {
-    Color? color,
-    VoidCallback? onTap,
-  }) {
+  Widget buildMoreTile(IconData icon,
+      String title, {
+        Color? color,
+        VoidCallback? onTap,
+      }) {
     return ListTile(
       leading: Icon(icon, color: color ?? const Color(0xFF0B8A4D)),
       title: Text(title),
@@ -78,7 +86,6 @@ class _MoreTabState extends State<MoreTab> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          // Account Settings
           buildSectionTitle("Account"),
           Card(
             color: Color(0xFFEEFFF7),
@@ -90,9 +97,7 @@ class _MoreTabState extends State<MoreTab> {
                 buildMoreTile(
                   Icons.person,
                   "Account",
-                  onTap: () {
-                    widget.onNavigateTo(9);
-                  },
+                  onTap: () => widget.onNavigateTo(9),
                 ),
               ],
             ),
@@ -108,8 +113,16 @@ class _MoreTabState extends State<MoreTab> {
             ),
             child: Column(
               children: [
-                buildMoreTile(Icons.analytics_rounded, "Analytics"),
-                buildMoreTile(Icons.question_mark_rounded, "Guide"),
+                buildMoreTile(
+                  Icons.analytics_rounded,
+                  "Analytics",
+                  onTap: () => widget.onNavigateTo(5),
+                ),
+                buildMoreTile(
+                  Icons.question_mark_rounded,
+                  "Guide",
+                  onTap: () => widget.onNavigateTo(7),
+                ),
               ],
             ),
           ),
@@ -124,34 +137,74 @@ class _MoreTabState extends State<MoreTab> {
             ),
             child: Column(
               children: [
-                buildMoreTile(Icons.info, "About"),
-                buildMoreTile(Icons.lightbulb, "Tutorial"),
-                buildMoreTile(Icons.question_mark_rounded, "Client Guide"),
-                buildMoreTile(Icons.question_answer_rounded, "FAQ"),
-                buildMoreTile(Icons.support_agent_rounded, "Support"),
+                buildMoreTile(
+                  Icons.info,
+                  "About",
+                  onTap: () => widget.onNavigateTo(6),
+                ),
+                buildMoreTile(
+                  Icons.lightbulb,
+                  "Tutorial",
+                  onTap: () {},
+                ),
+                buildMoreTile(
+                  Icons.question_mark_rounded,
+                  "Client Guide",
+                  onTap: () {},
+                ),
+                buildMoreTile(
+                  Icons.question_answer_rounded,
+                  "FAQ",
+                  onTap: () {},
+                ),
+                buildMoreTile(
+                  Icons.support_agent_rounded,
+                  "Support",
+                  onTap: () => widget.onNavigateTo(8),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
 
+<<<<<<< HEAD
           // Developer Settings
           buildSectionTitle("Developer Settings"),
           Card(
             color: Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
+=======
+          if (_isAdmin) ...[
+            buildSectionTitle("Developer Settings"),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  buildMoreTile(
+                    Icons.info,
+                    "Client Information",
+                    onTap: () {},
+                  ),
+                  buildMoreTile(
+                    Icons.list,
+                    "Logs",
+                    onTap: () {},
+                  ),
+                  buildMoreTile(
+                    Icons.cached,
+                    "Cache Actions",
+                    onTap: () {},
+                  ),
+                ],
+              ),
+>>>>>>> 28e14183ea6e53189de539f31fff6b9bbf71d0d7
             ),
-            child: Column(
-              children: [
-                buildMoreTile(Icons.info, "Client Information"),
-                buildMoreTile(Icons.list, "Logs"),
-                buildMoreTile(Icons.cached, "Cache Actions"),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+          ],
 
-          // Logout Button
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
@@ -162,13 +215,16 @@ class _MoreTabState extends State<MoreTab> {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            onPressed: () {
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
-                (route) => false,
+                    (route) => false,
               );
             },
+
             icon: const Icon(Icons.logout),
             label: const Text("Log Out"),
           ),

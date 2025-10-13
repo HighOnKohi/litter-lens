@@ -1,14 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:litter_lens/theme.dart';
 import 'login_page.dart';
+import 'home_page.dart';
 import 'package:camera/camera.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'firebase_options.dart';
 
 List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   cameras = await availableCameras();
+
   runApp(const MyApp());
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.data != null) {
+          return const HomePage();
+        }
+        return const LoginPage();
+      },
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -20,7 +52,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       title: 'Litter Lens',
-      home: const LoginPage(),
+      home: const AuthGate(),
     );
   }
 }

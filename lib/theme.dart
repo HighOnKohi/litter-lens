@@ -21,16 +21,9 @@ class BigGreenButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-<<<<<<< HEAD
-        backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: AppColors.bgColor, // text color
-=======
         backgroundColor: AppColors.primaryGreen,
         foregroundColor: Colors.white,
->>>>>>> 28e14183ea6e53189de539f31fff6b9bbf71d0d7
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         textStyle: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
         padding: const EdgeInsets.symmetric(horizontal: 125, vertical: 20),
       ),
@@ -53,16 +46,9 @@ class MediumGreenButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-<<<<<<< HEAD
-        backgroundColor: AppColors.primaryGreen, // fill color
-        foregroundColor: AppColors.bgColor, // text color
-=======
         backgroundColor: AppColors.primaryGreen,
         foregroundColor: Colors.white,
->>>>>>> 28e14183ea6e53189de539f31fff6b9bbf71d0d7
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
       ),

@@ -28,17 +28,18 @@ class _MoreTabState extends State<MoreTab> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final doc = await FirebaseFirestore.instance.collection('users').doc(
-          user.uid).get();
-      final role = (doc.data()?['role'] as String?)?.toLowerCase() ??
-          'homeowner';
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final role =
+          (doc.data()?['role'] as String?)?.toLowerCase() ?? 'homeowner';
       if (mounted) {
         setState(() {
           _isAdmin = role == 'admin';
         });
       }
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   @override
@@ -62,11 +63,12 @@ class _MoreTabState extends State<MoreTab> {
     );
   }
 
-  Widget buildMoreTile(IconData icon,
-      String title, {
-        Color? color,
-        VoidCallback? onTap,
-      }) {
+  Widget buildMoreTile(
+    IconData icon,
+    String title, {
+    Color? color,
+    VoidCallback? onTap,
+  }) {
     return ListTile(
       leading: Icon(icon, color: color ?? const Color(0xFF0B8A4D)),
       title: Text(title),
@@ -142,11 +144,7 @@ class _MoreTabState extends State<MoreTab> {
                   "About",
                   onTap: () => widget.onNavigateTo(6),
                 ),
-                buildMoreTile(
-                  Icons.lightbulb,
-                  "Tutorial",
-                  onTap: () {},
-                ),
+                buildMoreTile(Icons.lightbulb, "Tutorial", onTap: () {}),
                 buildMoreTile(
                   Icons.question_mark_rounded,
                   "Client Guide",
@@ -167,14 +165,6 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 20),
 
-<<<<<<< HEAD
-          // Developer Settings
-          buildSectionTitle("Developer Settings"),
-          Card(
-            color: Color(0xFFEEFFF7),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-=======
           if (_isAdmin) ...[
             buildSectionTitle("Developer Settings"),
             Card(
@@ -183,24 +173,11 @@ class _MoreTabState extends State<MoreTab> {
               ),
               child: Column(
                 children: [
-                  buildMoreTile(
-                    Icons.info,
-                    "Client Information",
-                    onTap: () {},
-                  ),
-                  buildMoreTile(
-                    Icons.list,
-                    "Logs",
-                    onTap: () {},
-                  ),
-                  buildMoreTile(
-                    Icons.cached,
-                    "Cache Actions",
-                    onTap: () {},
-                  ),
+                  buildMoreTile(Icons.info, "Client Information", onTap: () {}),
+                  buildMoreTile(Icons.list, "Logs", onTap: () {}),
+                  buildMoreTile(Icons.cached, "Cache Actions", onTap: () {}),
                 ],
               ),
->>>>>>> 28e14183ea6e53189de539f31fff6b9bbf71d0d7
             ),
             const SizedBox(height: 20),
           ],
@@ -221,7 +198,7 @@ class _MoreTabState extends State<MoreTab> {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginPage()),
-                    (route) => false,
+                (route) => false,
               );
             },
 

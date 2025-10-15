@@ -14,7 +14,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _identifierController = TextEditingController(); // username or email
+  final TextEditingController _identifierController =
+      TextEditingController(); // username or email
   final TextEditingController _passwordController = TextEditingController();
   bool _loading = false;
 
@@ -23,7 +24,7 @@ class _LoginPageState extends State<LoginPage> {
     final pw = _passwordController.text;
 
     if (id.isEmpty || pw.isEmpty) {
-      _showError('Please enter username\/email and password.');
+      _showError('Please enter username/email and password.');
       return;
     }
 
@@ -37,12 +38,18 @@ class _LoginPageState extends State<LoginPage> {
             .limit(1)
             .get();
         if (snap.docs.isEmpty) {
-          throw FirebaseAuthException(code: 'user-not-found', message: 'Username not found.');
+          throw FirebaseAuthException(
+            code: 'user-not-found',
+            message: 'Username not found.',
+          );
         }
         email = (snap.docs.first.data()['email'] as String);
       }
 
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pw);
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: pw,
+      );
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -85,7 +92,11 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     const Text(
                       'LOGIN',
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black),
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     SvgPicture.asset(
@@ -93,7 +104,10 @@ class _LoginPageState extends State<LoginPage> {
                       width: 150,
                       height: 150,
                       fit: BoxFit.contain,
-                      colorFilter: const ColorFilter.mode(Color(0xFF0B8A4D), BlendMode.srcIn),
+                      colorFilter: const ColorFilter.mode(
+                        Color(0xFF0B8A4D),
+                        BlendMode.srcIn,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     InputField(
@@ -120,11 +134,13 @@ class _LoginPageState extends State<LoginPage> {
                       onPressed: _loading
                           ? null
                           : () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const SignupPage()),
-                        );
-                      },
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SignupPage(),
+                                ),
+                              );
+                            },
                       child: const Text('Create an account'),
                     ),
                   ],

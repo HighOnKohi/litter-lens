@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-// import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class VoiceTab extends StatefulWidget {
   const VoiceTab({super.key});
@@ -9,346 +9,602 @@ class VoiceTab extends StatefulWidget {
   VoiceTabState createState() => VoiceTabState();
 }
 
-class VoiceTabState extends State<VoiceTab> {
+class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
   final SpeechToText _speechToText = SpeechToText();
-  final Set<String> allowedWords = {
+  final FlutterTts _flutterTts = FlutterTts();
+
+  // Confirmation states
+  bool _isAwaitingClearConfirmation = false;
+  bool _isAwaitingSubmitConfirmation = false;
+
+  // Confirmation keywords
+  final Set<String> confirmWords = {
+    'yes',
+    'confirm',
+    'proceed',
+    'okay',
+    'ok',
+    'submit',
+  };
+
+  final Set<String> cancelWords = {
+    'no',
+    'cancel',
+    'stop',
+    'never mind',
+    'dont',
+  };
+
+  // Trigger keywords
+  final Set<String> submitKeywords = {'submit', 'send', 'confirm', 'done'};
+  final Set<String> clearKeywords = {
+    'clear',
+    'reset',
+    'delete',
+    'erase',
+    'start over',
+  };
+
+  // Fullness level keywords
+  final Set<String> fullnessKeywords = {
     'almost empty',
     'kaunti laman',
     'half full',
     'kalahating puno',
     'malapit mapuno',
-    'full',
-    'overflowing',
-    'walang laman',
     'medyo puno',
+    'full',
     'puno',
+    'overflowing',
     'umaapaw',
     'apaw',
     'sobrang puno',
+    'walang laman',
+    'empty',
   };
-  final Set<String> confirmWords = {
-    'confirm',
-    'yes',
-    'oo',
-    'tama',
-    'okay',
-    'ok',
+
+  // Trigger keywords
+  final Set<String> streetTriggers = {'street', 'kalye', 'daan'};
+  final Set<String> binTriggers = {
+    'bin',
+    'basurahan',
+    'number',
+    'numero',
+    'bean',
+    'been',
+    'ben',
   };
-  final Set<String> cancelWords = {'cancel', 'no', 'hindi', 'ulit', 'mali'};
+
+  // Database variables
+  String? _fullnessLevel;
+  String? _streetName;
+  String? _binNumber;
+  DateTime? _recordedDate;
+
+  // UI state variables
   bool _speechEnabled = false;
   String _lastWords = '';
-  bool _dialogOpen = false;
-  bool _waitingForConfirmation = false;
-  String? _pendingWord;
+  String _statusMessage = '';
+  bool _isActive = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
     _initSpeech();
+    _flutterTts.setLanguage("en-PH");
+    _flutterTts.setSpeechRate(0.5);
+  }
+
+  @override
+  void dispose() {
+    _stopContinuousListening();
+    super.dispose();
   }
 
   void _initSpeech() async {
     _speechEnabled = await _speechToText.initialize(
       onError: (e) {
         debugPrint("Speech error: $e");
-        // Reset on error
-        if (mounted) {
-          setState(() {
-            _speechEnabled = false;
+        setState(() => _statusMessage = 'Error: ${e.errorMsg}');
+        // Restart listening after error
+        if (_isActive) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (_isActive && mounted) _startContinuousListening();
           });
         }
       },
       onStatus: (status) {
         debugPrint("Speech status: $status");
-        if (mounted) setState(() {});
+        if (status == 'notListening' && _isActive && mounted) {
+          // Automatically restart listening
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (_isActive && !_speechToText.isListening && mounted) {
+              _startContinuousListening();
+            }
+          });
+        }
       },
     );
-    if (mounted) setState(() {});
+    if (_speechEnabled && mounted) {
+      setState(() {});
+      _startContinuousListening();
+    }
   }
 
-  Future<void> _startListening() async {
-    // Stop any existing session first
-    if (_speechToText.isListening) {
-      await _speechToText.stop();
-    }
+  void _startContinuousListening() async {
+    if (!_speechEnabled || !mounted) return;
+
+    setState(() => _isActive = true);
 
     await _speechToText.listen(
       listenOptions: SpeechListenOptions(
         partialResults: true,
-        listenMode: ListenMode.confirmation,
-        cancelOnError: true,
+        listenMode: ListenMode.dictation,
+        cancelOnError: false,
       ),
       onResult: (result) {
-        String recognizedText = result.recognizedWords.toLowerCase().trim();
-
-        // If waiting for confirmation, check for confirm/cancel words
-        if (_waitingForConfirmation) {
-          if (_checkConfirmWords(recognizedText)) {
-            debugPrint('Confirmed: $_pendingWord');
-            _confirmAndSubmit();
-            return;
-          } else if (_checkCancelWords(recognizedText)) {
-            debugPrint('Cancelled, recording again');
-            _cancelAndRecordAgain();
-            return;
-          }
-        } else {
-          // Check if the recognized text matches any allowed phrase
-          if (allowedWords.contains(recognizedText)) {
-            debugPrint('Accepted phrase: $recognizedText');
-            _handleMatchedPhrase(recognizedText, result.finalResult);
-          } else {
-            // Check for partial matches
-            String? partialMatch = _findPartialMatch(recognizedText);
-            if (partialMatch != null) {
-              debugPrint('Partial match found: $partialMatch');
-              _handleMatchedPhrase(partialMatch, result.finalResult);
-            }
-          }
-        }
+        if (!mounted) return;
+        _processRecognizedWords(result.recognizedWords);
       },
     );
-    if (mounted) setState(() {});
   }
 
-  bool _checkConfirmWords(String text) {
-    return confirmWords.any((word) => text.contains(word));
+  void _stopContinuousListening() async {
+    setState(() => _isActive = false);
+    await _speechToText.stop();
   }
 
-  bool _checkCancelWords(String text) {
-    return cancelWords.any((word) => text.contains(word));
-  }
+  void _processRecognizedWords(String words) async {
+    if (words.isEmpty) return;
 
-  String? _findPartialMatch(String recognizedText) {
-    for (String phrase in allowedWords) {
-      if (recognizedText.contains(phrase)) {
-        return phrase;
+    setState(() => _lastWords = words);
+    String lowerWords = words.toLowerCase();
+
+    // =============================
+    // CLEAR CONFIRMATION LOGIC
+    // =============================
+    if (_isAwaitingClearConfirmation) {
+      for (var confirm in confirmWords) {
+        if (lowerWords.contains(confirm)) {
+          await _flutterTts.speak("Clearing all data now.");
+          setState(() => _isAwaitingClearConfirmation = false);
+          _clearData();
+          return;
+        }
+      }
+
+      for (var cancel in cancelWords) {
+        if (lowerWords.contains(cancel)) {
+          await _flutterTts.speak("Clear cancelled. Your data is safe.");
+          setState(() => _isAwaitingClearConfirmation = false);
+          return;
+        }
+      }
+      return; // Don't process other commands while awaiting confirmation
+    }
+
+    // =============================
+    // SUBMIT CONFIRMATION LOGIC
+    // =============================
+    if (_isAwaitingSubmitConfirmation) {
+      for (var confirm in confirmWords) {
+        if (lowerWords.contains(confirm)) {
+          await _flutterTts.speak("Submitting your data now.");
+          setState(() => _isAwaitingSubmitConfirmation = false);
+          _submitData();
+          return;
+        }
+      }
+
+      for (var cancel in cancelWords) {
+        if (lowerWords.contains(cancel)) {
+          await _flutterTts.speak("Submission cancelled.");
+          setState(() => _isAwaitingSubmitConfirmation = false);
+          return;
+        }
+      }
+      return; // Don't process other commands while awaiting confirmation
+    }
+
+    // =============================
+    // DETECT CLEAR REQUEST
+    // =============================
+    for (var clearWord in clearKeywords) {
+      if (lowerWords.contains(clearWord)) {
+        setState(() => _isAwaitingClearConfirmation = true);
+        await _flutterTts.speak(
+          "Are you sure you want to clear all data? Say yes to confirm or no to cancel.",
+        );
+        return;
       }
     }
-    return null;
-  }
 
-  void _stopListening() async {
-    await _speechToText.stop();
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _speechToText.stop();
-    super.dispose();
-  }
-
-  void _handleMatchedPhrase(String matchedPhrase, bool isFinal) {
-    setState(() {
-      _lastWords = matchedPhrase;
-    });
-
-    if (isFinal) {
-      _pendingWord = matchedPhrase;
-      _waitingForConfirmation = true;
-      _showConfirmationDialog(matchedPhrase);
+    // =============================
+    // DETECT SUBMIT REQUEST
+    // =============================
+    for (var submitWord in submitKeywords) {
+      if (lowerWords.contains(submitWord)) {
+        if (_streetName == null ||
+            _binNumber == null ||
+            _fullnessLevel == null) {
+          await _flutterTts.speak(
+            "Please provide all required information: street name, bin number, and fullness level.",
+          );
+          return;
+        }
+        setState(() => _isAwaitingSubmitConfirmation = true);
+        await _flutterTts.speak(
+          "You are about to submit the following data: "
+          "Street $_streetName, bin number $_binNumber, fullness level $_fullnessLevel. "
+          "Say yes to confirm or no to cancel.",
+        );
+        return;
+      }
     }
-  }
 
-  Future<void> _showTranscriptDialog(String text) async {
-    if (_dialogOpen || !mounted) return;
-    setState(() => _dialogOpen = true);
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('You said'),
-        content: Text(text),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    if (mounted) setState(() => _dialogOpen = false);
-  }
+    // =============================
+    // BIN / STREET / FULLNESS EXTRACTION
+    // =============================
+    bool dataUpdated = false;
 
-  Future<void> _showConfirmationDialog(String text) async {
-    if (_dialogOpen || !mounted) return;
-    setState(() => _dialogOpen = true);
+    for (String trigger in binTriggers) {
+      if (lowerWords.contains(trigger)) {
+        _extractBinNumber(lowerWords, trigger);
+        dataUpdated = true;
+        break;
+      }
+    }
 
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Recognition'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              text,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Say "confirm" or "yes" to submit\nSay "cancel" or "no" to record again',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _cancelAndRecordAgain();
-            },
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _confirmAndSubmit();
-            },
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
+    for (String trigger in streetTriggers) {
+      if (lowerWords.contains(trigger)) {
+        _extractStreetName(lowerWords, trigger);
+        dataUpdated = true;
+        break;
+      }
+    }
 
-    if (mounted) setState(() => _dialogOpen = false);
-  }
+    if (_checkFullnessLevel(lowerWords)) {
+      dataUpdated = true;
+    }
 
-  void _confirmAndSubmit() async {
-    if (_pendingWord == null) return;
-
-    await _speechToText.stop();
-
-    // UNFINISHED: DATABASE SUBMISSION
-    debugPrint('Submitting to database: $_pendingWord');
-
-    if (mounted) {
-      setState(() {
-        _waitingForConfirmation = false;
-        _pendingWord = null;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Submitted: $_lastWords'),
-          backgroundColor: Colors.green,
-        ),
+    // Provide feedback when all data is collected
+    if (dataUpdated &&
+        _streetName != null &&
+        _binNumber != null &&
+        _fullnessLevel != null) {
+      await _flutterTts.speak(
+        "All data collected. Say submit when ready to send.",
       );
     }
   }
 
-  void _cancelAndRecordAgain() async {
-    await _speechToText.stop();
+  Future<void> _submitData() async {
+    await _flutterTts.speak("Data submitted successfully. Thank you!");
+    debugPrint("=== Data Submitted ===");
+    debugPrint("Street: $_streetName");
+    debugPrint("Bin: $_binNumber");
+    debugPrint("Fullness: $_fullnessLevel");
+    debugPrint("Date: $_recordedDate");
+    debugPrint("=====================");
 
-    if (mounted) {
-      setState(() {
-        _waitingForConfirmation = false;
-        _pendingWord = null;
-        _lastWords = '';
-      });
+    setState(() {
+      _statusMessage = "Data submitted successfully.";
+    });
 
-      // Automatically start recording again
-      await Future.delayed(const Duration(milliseconds: 500));
+    // Reset data after submission
+    Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
-        _startListening();
+        _clearData();
+      }
+    });
+  }
+
+  void _extractBinNumber(String text, String trigger) {
+    int triggerIndex = text.indexOf(trigger);
+    if (triggerIndex == -1) return;
+
+    String afterTrigger = text.substring(triggerIndex + trigger.length).trim();
+    List<String> words = afterTrigger.split(' ');
+
+    if (words.isNotEmpty && words[0].isNotEmpty) {
+      String newBinNumber = words[0];
+      newBinNumber = _convertWordToNumber(newBinNumber);
+
+      if (_binNumber != newBinNumber) {
+        setState(() {
+          _binNumber = newBinNumber;
+          _recordedDate = DateTime.now();
+          _statusMessage = 'Bin number updated: $_binNumber';
+        });
+        _printStoredData();
       }
     }
   }
 
-  // void _onSpeechResult(SpeechRecognitionResult result) {
-  //   final words = result.recognizedWords.trim();
-  //   setState(() {
-  //     _lastWords = words;
-  //   });
+  void _extractStreetName(String text, String trigger) {
+    int triggerIndex = text.indexOf(trigger);
+    if (triggerIndex == -1) return;
 
-  //   if (result.finalResult && words.isNotEmpty) {
-  //     _showTranscriptDialog(words);
-  //   }
-  // }
+    String afterTrigger = text.substring(triggerIndex + trigger.length).trim();
+    List<String> words = afterTrigger.split(' ');
 
+    if (words.isNotEmpty && words[0].isNotEmpty) {
+      List<String> streetWords = [];
+      for (int i = 0; i < words.length && i < 4; i++) {
+        String word = words[i].toLowerCase();
+        // Stop if we encounter another keyword
+        if (binTriggers.contains(word) || fullnessKeywords.contains(word)) {
+          break;
+        }
+        streetWords.add(words[i]);
+      }
+
+      if (streetWords.isNotEmpty) {
+        String newStreetName = streetWords.join(' ');
+
+        if (_streetName != newStreetName) {
+          setState(() {
+            _streetName = newStreetName;
+            _recordedDate = DateTime.now();
+            _statusMessage = 'Street updated: $_streetName';
+          });
+          _printStoredData();
+        }
+      }
+    }
+  }
+
+  bool _checkFullnessLevel(String text) {
+    for (var keyword in fullnessKeywords) {
+      if (text.contains(keyword)) {
+        if (_fullnessLevel != keyword) {
+          setState(() {
+            _fullnessLevel = keyword;
+            _recordedDate = DateTime.now();
+            _statusMessage = 'Fullness updated: $_fullnessLevel';
+          });
+          _printStoredData();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  String _convertWordToNumber(String word) {
+    const wordToNumber = {
+      'one': '1',
+      'isa': '1',
+      'two': '2',
+      'dalawa': '2',
+      'three': '3',
+      'tatlo': '3',
+      'four': '4',
+      'apat': '4',
+      'five': '5',
+      'lima': '5',
+      'six': '6',
+      'anim': '6',
+      'seven': '7',
+      'pito': '7',
+      'eight': '8',
+      'walo': '8',
+      'nine': '9',
+      'siyam': '9',
+      'ten': '10',
+      'sampu': '10',
+    };
+
+    return wordToNumber[word.toLowerCase()] ?? word;
+  }
+
+  void _printStoredData() {
+    debugPrint('=== Stored Data ===');
+    debugPrint('Fullness Level: $_fullnessLevel');
+    debugPrint('Street Name: $_streetName');
+    debugPrint('Bin Number: $_binNumber');
+    debugPrint('Recorded Date: $_recordedDate');
+    debugPrint('==================');
+  }
+
+  void _clearData() {
+    setState(() {
+      _fullnessLevel = null;
+      _streetName = null;
+      _binNumber = null;
+      _recordedDate = null;
+      _lastWords = '';
+      _statusMessage = 'Data cleared';
+      _isAwaitingClearConfirmation = false;
+      _isAwaitingSubmitConfirmation = false;
+    });
+    debugPrint('All data cleared');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final accent = const Color(0xFF0B8A4D);
+    super.build(context);
 
     return Scaffold(
       body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          if (_speechToText.isListening) ...[
-            Row(
+          // Status indicator
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: _isActive ? Colors.red.shade50 : Colors.grey.shade200,
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
                   width: 12,
                   height: 12,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
+                  decoration: BoxDecoration(
+                    color: _isActive ? Colors.red : Colors.grey,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text(
-                  "Listening...",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Text(
+                  _isActive ? "Continuously Listening..." : "Not Listening",
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-          ],
-          Center(
+          ),
+
+          // Stored data card
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Card(
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Stored Data',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Divider(height: 24),
+                          _buildDataRow(
+                            'Fullness Level',
+                            _fullnessLevel,
+                            Icons.delete,
+                          ),
+                          _buildDataRow(
+                            'Street Name',
+                            _streetName,
+                            Icons.location_on,
+                          ),
+                          _buildDataRow(
+                            'Bin Number',
+                            _binNumber,
+                            Icons.delete_outline,
+                          ),
+                          _buildDataRow(
+                            'Recorded Date',
+                            _recordedDate != null
+                                ? '${_recordedDate!.day}/${_recordedDate!.month}/${_recordedDate!.year} ${_recordedDate!.hour}:${_recordedDate!.minute.toString().padLeft(2, '0')}'
+                                : null,
+                            Icons.calendar_today,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Live transcript
+                  Card(
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Live Transcript',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _lastWords.isNotEmpty
+                                ? _lastWords
+                                : 'Waiting for speech...',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Status message
+                  if (_statusMessage.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      color: Colors.green.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              color: Colors.green.shade700,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _statusMessage,
+                                style: TextStyle(
+                                  color: Colors.green.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataRow(String label, String? value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.grey.shade600),
+          const SizedBox(width: 12),
+          Expanded(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _waitingForConfirmation
-                      ? 'Say "confirm" or "cancel"'
-                      : 'Recognized words:',
-                  style: const TextStyle(
-                    fontSize: 20.0,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 2),
                 Text(
-                  _lastWords.isNotEmpty
-                      ? _lastWords
-                      : _speechToText.isListening
-                      ? 'Listening...'
-                      : _speechEnabled
-                      ? 'Tap the microphone to start listening...'
-                      : 'Speech not available',
-                  style: const TextStyle(fontSize: 18),
-                  textAlign: TextAlign.center,
+                  value ?? 'Not set',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: value != null
+                        ? FontWeight.w600
+                        : FontWeight.normal,
+                    color: value != null
+                        ? Colors.black87
+                        : Colors.grey.shade400,
+                  ),
                 ),
               ],
             ),
           ),
         ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: GestureDetector(
-        onTap: _speechToText.isNotListening ? _startListening : _stopListening,
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _speechToText.isListening ? Colors.redAccent : accent,
-            boxShadow: [
-              BoxShadow(
-                color: accent.withAlpha(100),
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Icon(
-            _speechToText.isListening ? Icons.mic : Icons.mic_none,
-            color: Colors.white,
-            size: 40,
-          ),
-        ),
       ),
     );
   }

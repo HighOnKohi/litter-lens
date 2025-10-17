@@ -99,7 +99,7 @@ class _MoreTabState extends State<MoreTab> {
                 buildMoreTile(
                   Icons.person,
                   "Account",
-                  onTap: () => widget.onNavigateTo(9),
+                  onTap: () => widget.onNavigateTo(7),
                 ),
               ],
             ),
@@ -118,12 +118,12 @@ class _MoreTabState extends State<MoreTab> {
                 buildMoreTile(
                   Icons.analytics_rounded,
                   "Analytics",
-                  onTap: () => widget.onNavigateTo(5),
+                  onTap: () => widget.onNavigateTo(3),
                 ),
                 buildMoreTile(
                   Icons.question_mark_rounded,
                   "Guide",
-                  onTap: () => widget.onNavigateTo(7),
+                  onTap: () => widget.onNavigateTo(5),
                 ),
               ],
             ),
@@ -142,7 +142,7 @@ class _MoreTabState extends State<MoreTab> {
                 buildMoreTile(
                   Icons.info,
                   "About",
-                  onTap: () => widget.onNavigateTo(6),
+                  onTap: () => widget.onNavigateTo(4),
                 ),
                 buildMoreTile(Icons.lightbulb, "Tutorial", onTap: () {}),
                 buildMoreTile(
@@ -158,7 +158,7 @@ class _MoreTabState extends State<MoreTab> {
                 buildMoreTile(
                   Icons.support_agent_rounded,
                   "Support",
-                  onTap: () => widget.onNavigateTo(8),
+                  onTap: () => widget.onNavigateTo(6),
                 ),
               ],
             ),

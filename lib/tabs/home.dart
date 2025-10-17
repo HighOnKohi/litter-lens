@@ -24,23 +24,23 @@ class _HomeTabState extends State<HomeTab> {
     super.dispose();
   }
 
-  Future<void> _createPost() async {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => CreatePost(
-        postNameController: _postNameController,
-        postDetailController: _postDetailController,
-        onSubmit: (title, desc, imageUrl) async {
-          await PostService.createPost(
-            title: title,
-            description: desc,
-            imageUrl: imageUrl,
-          );
-        },
-      ),
-    );
-  }
+  // Future<void> _createPost() async {
+  //   if (!mounted) return;
+  //   showDialog(
+  //     context: context,
+  //     builder: (_) => CreatePost(
+  //       postNameController: _postNameController,
+  //       postDetailController: _postDetailController,
+  //       onSubmit: (title, desc, imageUrl) async {
+  //         await PostService.createPost(
+  //           title: title,
+  //           description: desc,
+  //           imageUrl: imageUrl,
+  //         );
+  //       },
+  //     ),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -72,17 +72,20 @@ class _HomeTabState extends State<HomeTab> {
 
               final authorName =
                   ((data['userName'] ?? data['username']) as String?)?.trim() ??
-                      'User';
+                  'User';
 
               final authorAvatarUrl =
-              ((data['userPhotoUrl'] ??
-                  data['photoUrl'] ??
-                  data['avatarUrl']) as String?)
-                  ?.trim()
-                  ;
+                  ((data['userPhotoUrl'] ??
+                              data['photoUrl'] ??
+                              data['avatarUrl'])
+                          as String?)
+                      ?.trim();
 
-              final parts =
-              <String>[title, desc, imageUrl].where((s) => s.isNotEmpty).toList();
+              final parts = <String>[
+                title,
+                desc,
+                imageUrl,
+              ].where((s) => s.isNotEmpty).toList();
               final contentToShare = parts.join('\n\n');
 
               return Post(
@@ -100,10 +103,10 @@ class _HomeTabState extends State<HomeTab> {
           );
         },
       ),
-      floatingActionButton: ActionButton(
-        onPressed: _createPost,
-        icon: Icons.upload_rounded,
-      ),
+      // floatingActionButton: ActionButton(
+      //   onPressed: _createPost,
+      //   icon: Icons.upload_rounded,
+      // ),
     );
   }
 }

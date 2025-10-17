@@ -22,11 +22,10 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   int _lastMainIndex = 0;
-  int tanginamo = 1245;
 
   void _onItemTapped(int index) {
     setState(() {
-      if (index <= 4) {
+      if (index <= 2) {
         _lastMainIndex = index;
       }
       _selectedIndex = index;
@@ -36,8 +35,6 @@ class _HomePageState extends State<HomePage> {
   late final List<Widget> _pages = [
     const HomeTab(),
     const VoiceTab(),
-    ScanTab(cameras: cameras),
-    const TestTab(),
     MoreTab(onNavigateTo: _onItemTapped),
     const AnalyticsTab(),
     const AboutTab(),
@@ -51,7 +48,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Litter Lens'),
-        leading: (_selectedIndex <= 4)
+        leading: (_selectedIndex <= 2)
             ? Builder(
                 builder: (context) => IconButton(
                   icon: SvgPicture.asset(
@@ -78,14 +75,6 @@ class _HomePageState extends State<HomePage> {
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           const BottomNavigationBarItem(icon: Icon(Icons.mic), label: 'Voice'),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.camera_alt_rounded),
-            label: 'Scan',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.adb_rounded),
-            label: 'Test',
-          ),
           BottomNavigationBarItem(
             icon: SvgPicture.asset(
               'assets/images/logo.svg',
@@ -100,7 +89,7 @@ class _HomePageState extends State<HomePage> {
             label: 'More',
           ),
         ],
-        currentIndex: (_selectedIndex <= 4) ? _selectedIndex : 0,
+        currentIndex: (_selectedIndex <= 2) ? _selectedIndex : 0,
         onTap: _onItemTapped,
       ),
     );

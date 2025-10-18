@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import '../services/local_file_helper.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
 
 class VoiceTab extends StatefulWidget {
   const VoiceTab({super.key});
@@ -16,6 +21,9 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
   // Confirmation states
   bool _isAwaitingClearConfirmation = false;
   bool _isAwaitingSubmitConfirmation = false;
+  bool _isOnline = true;
+  double? _latitude;
+  double? _longitude;
 
   // Confirmation keywords
   final Set<String> confirmWords = {
@@ -93,9 +101,21 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
   @override
   void initState() {
     super.initState();
-    _initSpeech();
+
+    // Listen for internet connection and sync automatically
+    Connectivity().onConnectivityChanged.listen((
+      List<ConnectivityResult> results,
+    ) {
+      if (results.contains(ConnectivityResult.mobile) ||
+          results.contains(ConnectivityResult.wifi)) {
+        _syncPendingSubmissions();
+      }
+    });
+
+    // ✅ Initialize speech recognizer so it can start listening
     _flutterTts.setLanguage("en-PH");
     _flutterTts.setSpeechRate(0.5);
+    _initSpeech();
   }
 
   @override
@@ -281,25 +301,68 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
     }
   }
 
+  Future<Map<String, double?>> _getCurrentLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint("⚠️ Location service disabled");
+        return {'latitude': null, 'longitude': null};
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          debugPrint("⚠️ Location permission denied");
+          return {'latitude': null, 'longitude': null};
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        debugPrint("⚠️ Location permission permanently denied");
+        return {'latitude': null, 'longitude': null};
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      return {'latitude': position.latitude, 'longitude': position.longitude};
+    } catch (e) {
+      debugPrint("❌ Location error: $e");
+      return {'latitude': null, 'longitude': null};
+    }
+  }
+
   Future<void> _submitData() async {
-    await _flutterTts.speak("Data submitted successfully. Thank you!");
-    debugPrint("=== Data Submitted ===");
-    debugPrint("Street: $_streetName");
-    debugPrint("Bin: $_binNumber");
-    debugPrint("Fullness: $_fullnessLevel");
-    debugPrint("Date: $_recordedDate");
-    debugPrint("=====================");
+    final location = await _getCurrentLocation();
 
     setState(() {
-      _statusMessage = "Data submitted successfully.";
+      _recordedDate = DateTime.now();
     });
 
-    // Reset data after submission
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        _clearData();
-      }
+    setState(() {
+      _latitude = location['latitude'];
+      _longitude = location['longitude'];
     });
+
+    final submission = {
+      'streetName': _streetName,
+      'binNumber': _binNumber,
+      'fullnessLevel': _fullnessLevel,
+      'recordedDate': _recordedDate?.toIso8601String(),
+      'latitude': _latitude,
+      'longitude': _longitude,
+    };
+
+    // Always save to local file
+    await LocalFileHelper.appendSubmission(submission);
+    debugPrint("✅ Saved locally: $submission");
+
+    await _flutterTts.speak("Data submitted successfully with location.");
+    setState(() => _statusMessage = "Data saved (with location).");
+
+    _clearData();
   }
 
   void _extractBinNumber(String text, String trigger) {
@@ -424,6 +487,45 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
     debugPrint('All data cleared');
   }
 
+  Future<void> _syncPendingSubmissions() async {
+    final submissions = await LocalFileHelper.readAllSubmissions();
+    if (submissions.isEmpty) {
+      debugPrint("📂 No local submissions to sync.");
+      return;
+    }
+
+    debugPrint("🌐 Syncing ${submissions.length} local submissions...");
+
+    bool allSynced = true;
+    for (final submission in submissions) {
+      try {
+        final response = await http.post(
+          Uri.parse("https://your-server.com/api/submit"),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(submission),
+        );
+
+        if (response.statusCode != 200) {
+          allSynced = false;
+          debugPrint("⚠️ Failed to sync: ${response.statusCode}");
+        }
+      } catch (e) {
+        allSynced = false;
+        debugPrint("❌ Sync error: $e");
+        break;
+      }
+    }
+
+    if (allSynced) {
+      await LocalFileHelper.clearFile();
+      debugPrint("✅ All local submissions synced and file cleared.");
+      await _flutterTts.speak("All saved data uploaded successfully.");
+      setState(() => _statusMessage = "All local data synced.");
+    } else {
+      debugPrint("⚠️ Some submissions failed. File kept for retry.");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -499,9 +601,20 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
                           _buildDataRow(
                             'Recorded Date',
                             _recordedDate != null
-                                ? '${_recordedDate!.day}/${_recordedDate!.month}/${_recordedDate!.year} ${_recordedDate!.hour}:${_recordedDate!.minute.toString().padLeft(2, '0')}'
+                                ? '${_recordedDate!.day}/${_recordedDate!.month}/${_recordedDate!.year} '
+                                      '${_recordedDate!.hour}:${_recordedDate!.minute.toString().padLeft(2, '0')}'
                                 : null,
                             Icons.calendar_today,
+                          ),
+                          _buildDataRow(
+                            'Latitude',
+                            _latitude != null ? _latitude.toString() : null,
+                            Icons.location_searching,
+                          ),
+                          _buildDataRow(
+                            'Longitude',
+                            _longitude != null ? _longitude.toString() : null,
+                            Icons.location_searching,
                           ),
                         ],
                       ),

@@ -82,9 +82,30 @@ class InputField extends StatelessWidget {
       obscureText: isObscured,
       maxLines: isObscured ? 1 : maxLines,
       minLines: isObscured ? 1 : minLines,
+      cursorColor: AppColors.primaryGreen,
       decoration: InputDecoration(
         labelText: label,
-        border: const OutlineInputBorder(),
+        labelStyle: const TextStyle(color: AppColors.primaryGreen),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: AppColors.primaryGreen,
+            width: 2.0,
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: AppColors.primaryGreen,
+            width: 1.5,
+          ),
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.primaryGreen),
+        ),
+        fillColor: AppColors.bgColor,
+        filled: true,
       ),
     );
   }

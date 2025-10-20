@@ -82,6 +82,7 @@ class _HomePageState extends State<HomePage> {
               height: 25,
               fit: BoxFit.contain,
               colorFilter: const ColorFilter.mode(
+                // use primary green from theme
                 Color(0xFF0B8A4D),
                 BlendMode.srcIn,
               ),

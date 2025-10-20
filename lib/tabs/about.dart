@@ -39,7 +39,7 @@ class _AboutTabState extends State<AboutTab> {
                   subtitle: Text(
                     "Fullness: ${item['fullnessLevel']} | "
                     "Lat: ${item['latitude']} | Lon: ${item['longitude']} | "
-                    "Date: ${item['recordedDate']}",
+                    "Date: ${DateTime.parse(item['recordedDate']).toIso8601String().split('T')[0]}",
                   ),
                 );
               },

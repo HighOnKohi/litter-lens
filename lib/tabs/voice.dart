@@ -3,9 +3,10 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/local_file_helper.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:geolocator/geolocator.dart';
+import '../services/street_data_service.dart';
+import '../services/account_service.dart';
+import 'package:intl/intl.dart';
+import 'package:litter_lens/theme.dart';
 
 class VoiceTab extends StatefulWidget {
   const VoiceTab({super.key});
@@ -14,17 +15,14 @@ class VoiceTab extends StatefulWidget {
   VoiceTabState createState() => VoiceTabState();
 }
 
-class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
+class VoiceTabState extends State<VoiceTab>
+    with AutomaticKeepAliveClientMixin<VoiceTab> {
   final SpeechToText _speechToText = SpeechToText();
   final FlutterTts _flutterTts = FlutterTts();
 
   // Confirmation states
   bool _isAwaitingClearConfirmation = false;
-  bool _isAwaitingSubmitConfirmation = false;
-  bool _isOnline = true;
-  double? _latitude;
-  double? _longitude;
-
+  // submit confirmation removed: we'll auto-verify and submit when inputs are complete
   // Confirmation keywords
   final Set<String> confirmWords = {
     'yes',
@@ -53,41 +51,37 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
     'start over',
   };
 
-  // Fullness level keywords
-  final Set<String> fullnessKeywords = {
-    'almost empty',
-    'kaunti laman',
-    'half full',
-    'kalahating puno',
-    'malapit mapuno',
-    'medyo puno',
-    'full',
-    'puno',
-    'overflowing',
-    'umaapaw',
-    'apaw',
-    'sobrang puno',
-    'walang laman',
-    'empty',
+  // Fullness mapping: map common phrases (including Filipino translations) to canonical English values
+  final Map<String, String> fullnessMap = {
+    // canonical -> keys map (we'll reference by keys)
+    'overflowing': 'Overflowing',
+    'umaapaw': 'Overflowing',
+    'apaw': 'Overflowing',
+    'sobrang puno': 'Overflowing',
+
+    'full': 'Full',
+    'puno': 'Full',
+
+    'half full': 'Half Full',
+    'kalahating puno': 'Half Full',
+    'medyo puno': 'Half Full',
+
+    'almost empty': 'Almost Empty',
+    'kaunti laman': 'Almost Empty',
+    'malapit mapuno': 'Almost Empty',
+
+    'empty': 'Empty',
+    'walang laman': 'Empty',
   };
 
   // Trigger keywords
   final Set<String> streetTriggers = {'street', 'kalye', 'daan'};
-  final Set<String> binTriggers = {
-    'bin',
-    'basurahan',
-    'number',
-    'numero',
-    'bean',
-    'been',
-    'ben',
-  };
 
   // Database variables
   String? _fullnessLevel;
   String? _streetName;
-  String? _binNumber;
   DateTime? _recordedDate;
+  bool _isSubmitting = false;
 
   // UI state variables
   bool _speechEnabled = false;
@@ -120,7 +114,20 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
 
   @override
   void dispose() {
-    _stopContinuousListening();
+    // Avoid calling setState during dispose which can trigger
+    // '_ElementLifecycle.defunct' assertions. Stop the recognizer
+    // directly without touching widget state.
+    _isActive = false;
+    try {
+      _speechToText.stop();
+    } catch (e) {
+      // ignore
+    }
+    try {
+      _flutterTts.stop();
+    } catch (e) {
+      // ignore
+    }
     super.dispose();
   }
 
@@ -128,7 +135,7 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
     _speechEnabled = await _speechToText.initialize(
       onError: (e) {
         debugPrint("Speech error: $e");
-        setState(() => _statusMessage = 'Error: ${e.errorMsg}');
+        if (mounted) setState(() => _statusMessage = 'Error: ${e.errorMsg}');
         // Restart listening after error
         if (_isActive) {
           Future.delayed(const Duration(seconds: 1), () {
@@ -167,17 +174,21 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
       ),
       onResult: (result) {
         if (!mounted) return;
-        _processRecognizedWords(result.recognizedWords);
+        _processRecognizedWords(result.recognizedWords)
+            .then((_) {
+              // Handle any post-processing if needed
+            })
+            .catchError((error) {
+              debugPrint('Error processing words: $error');
+            });
       },
     );
   }
 
-  void _stopContinuousListening() async {
-    setState(() => _isActive = false);
-    await _speechToText.stop();
-  }
+  // _stopContinuousListening removed; disposal now stops recognizer directly
+  // to avoid calling setState on an unmounted widget.
 
-  void _processRecognizedWords(String words) async {
+  Future<void> _processRecognizedWords(String words) async {
     if (words.isEmpty) return;
 
     setState(() => _lastWords = words);
@@ -206,28 +217,8 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
       return; // Don't process other commands while awaiting confirmation
     }
 
-    // =============================
-    // SUBMIT CONFIRMATION LOGIC
-    // =============================
-    if (_isAwaitingSubmitConfirmation) {
-      for (var confirm in confirmWords) {
-        if (lowerWords.contains(confirm)) {
-          await _flutterTts.speak("Submitting your data now.");
-          setState(() => _isAwaitingSubmitConfirmation = false);
-          _submitData();
-          return;
-        }
-      }
-
-      for (var cancel in cancelWords) {
-        if (lowerWords.contains(cancel)) {
-          await _flutterTts.speak("Submission cancelled.");
-          setState(() => _isAwaitingSubmitConfirmation = false);
-          return;
-        }
-      }
-      return; // Don't process other commands while awaiting confirmation
-    }
+    // We no longer ask for submission confirmation. The flow: once both street and fullness are present
+    // we validate and auto-submit (no duplicate confirmation step).
 
     // =============================
     // DETECT CLEAR REQUEST
@@ -242,45 +233,41 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
       }
     }
 
-    // =============================
-    // DETECT SUBMIT REQUEST
-    // =============================
+    // DETECT SUBMIT REQUEST: allow user to say 'submit' but we will verify inputs and auto-submit
     for (var submitWord in submitKeywords) {
       if (lowerWords.contains(submitWord)) {
-        if (_streetName == null ||
-            _binNumber == null ||
-            _fullnessLevel == null) {
+        if (_streetName == null || _fullnessLevel == null) {
           await _flutterTts.speak(
-            "Please provide all required information: street name, bin number, and fullness level.",
+            "Please provide both street name and fullness level before submitting.",
           );
           return;
         }
-        setState(() => _isAwaitingSubmitConfirmation = true);
-        await _flutterTts.speak(
-          "You are about to submit the following data: "
-          "Street $_streetName, bin number $_binNumber, fullness level $_fullnessLevel. "
-          "Say yes to confirm or no to cancel.",
-        );
+
+        // Prevent duplicate submissions while one is in progress
+        if (_isSubmitting) {
+          await _flutterTts.speak(
+            "Submission already in progress, please wait.",
+          );
+          return;
+        }
+
+        setState(() => _isSubmitting = true);
+        await _flutterTts.speak("Submitting data now.");
+        await _submitData();
+        setState(() => _isSubmitting = false);
         return;
       }
     }
 
     // =============================
-    // BIN / STREET / FULLNESS EXTRACTION
+    // STREET / FULLNESS EXTRACTION
     // =============================
-    bool dataUpdated = false;
 
-    for (String trigger in binTriggers) {
-      if (lowerWords.contains(trigger)) {
-        _extractBinNumber(lowerWords, trigger);
-        dataUpdated = true;
-        break;
-      }
-    }
+    bool dataUpdated = false;
 
     for (String trigger in streetTriggers) {
       if (lowerWords.contains(trigger)) {
-        _extractStreetName(lowerWords, trigger);
+        await _extractStreetName(lowerWords, trigger);
         dataUpdated = true;
         break;
       }
@@ -290,142 +277,242 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
       dataUpdated = true;
     }
 
+    // Clear the live transcript after processing to avoid duplicate detections
+    setState(() => _lastWords = '');
+
     // Provide feedback when all data is collected
-    if (dataUpdated &&
-        _streetName != null &&
-        _binNumber != null &&
-        _fullnessLevel != null) {
+    if (dataUpdated && _streetName != null && _fullnessLevel != null) {
       await _flutterTts.speak(
         "All data collected. Say submit when ready to send.",
       );
     }
   }
 
-  Future<Map<String, double?>> _getCurrentLocation() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        debugPrint("⚠️ Location service disabled");
-        return {'latitude': null, 'longitude': null};
-      }
+  // Future<Map<String, double?>> _getCurrentLocation() async {
+  //   try {
+  //     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  //     if (!serviceEnabled) {
+  //       debugPrint("⚠️ Location service disabled");
+  //       return {'latitude': null, 'longitude': null};
+  //     }
 
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          debugPrint("⚠️ Location permission denied");
-          return {'latitude': null, 'longitude': null};
-        }
-      }
+  //     LocationPermission permission = await Geolocator.checkPermission();
+  //     if (permission == LocationPermission.denied) {
+  //       permission = await Geolocator.requestPermission();
+  //       if (permission == LocationPermission.denied) {
+  //         debugPrint("⚠️ Location permission denied");
+  //         return {'latitude': null, 'longitude': null};
+  //       }
+  //     }
 
-      if (permission == LocationPermission.deniedForever) {
-        debugPrint("⚠️ Location permission permanently denied");
-        return {'latitude': null, 'longitude': null};
-      }
+  //     if (permission == LocationPermission.deniedForever) {
+  //       debugPrint("⚠️ Location permission permanently denied");
+  //       return {'latitude': null, 'longitude': null};
+  //     }
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+  //     final position = await Geolocator.getCurrentPosition(
+  //       desiredAccuracy: LocationAccuracy.high,
+  //     );
 
-      return {'latitude': position.latitude, 'longitude': position.longitude};
-    } catch (e) {
-      debugPrint("❌ Location error: $e");
-      return {'latitude': null, 'longitude': null};
-    }
-  }
+  //     return {'latitude': position.latitude, 'longitude': position.longitude};
+  //   } catch (e) {
+  //     debugPrint("❌ Location error: $e");
+  //     return {'latitude': null, 'longitude': null};
+  //   }
+  // }
 
   Future<void> _submitData() async {
-    final location = await _getCurrentLocation();
+    // Resolve subdivision and ensure street is valid before attempting upload.
+    final subdivisionId = await AccountService.getSubdivisionIdForCurrentUser();
+    if (subdivisionId == null) {
+      try {
+        await _flutterTts.speak(
+          "Unable to determine subdivision. Please login or try again.",
+        );
+      } catch (e) {}
+      setState(
+        () => _statusMessage = 'SubdivisionID not found for current user',
+      );
+      return;
+    }
 
-    setState(() {
-      _recordedDate = DateTime.now();
-    });
+    // Find the street in the subdivision list
+    final streets = await StreetDataService.getStreets(
+      subdivisionId: subdivisionId,
+    );
+    final street = streets.firstWhere(
+      (s) => s.name.toLowerCase() == (_streetName ?? '').toLowerCase(),
+      orElse: () => Street(id: '', name: ''),
+    );
+    if (street.id.isEmpty) {
+      try {
+        await _flutterTts.speak(
+          "Street not found. Please select a valid street before submitting.",
+        );
+      } catch (e) {}
+      setState(() => _statusMessage = 'Street not found');
+      return;
+    }
 
-    setState(() {
-      _latitude = location['latitude'];
-      _longitude = location['longitude'];
-    });
-
-    final submission = {
-      'streetName': _streetName,
-      'binNumber': _binNumber,
-      'fullnessLevel': _fullnessLevel,
-      'recordedDate': _recordedDate?.toIso8601String(),
-      'latitude': _latitude,
-      'longitude': _longitude,
-    };
-
-    // Always save to local file
-    await LocalFileHelper.appendSubmission(submission);
-    debugPrint("✅ Saved locally: $submission");
-
-    await _flutterTts.speak("Data submitted successfully with location.");
-    setState(() => _statusMessage = "Data saved (with location).");
-
-    _clearData();
-  }
-
-  void _extractBinNumber(String text, String trigger) {
-    int triggerIndex = text.indexOf(trigger);
-    if (triggerIndex == -1) return;
-
-    String afterTrigger = text.substring(triggerIndex + trigger.length).trim();
-    List<String> words = afterTrigger.split(' ');
-
-    if (words.isNotEmpty && words[0].isNotEmpty) {
-      String newBinNumber = words[0];
-      newBinNumber = _convertWordToNumber(newBinNumber);
-
-      if (_binNumber != newBinNumber) {
-        setState(() {
-          _binNumber = newBinNumber;
-          _recordedDate = DateTime.now();
-          _statusMessage = 'Bin number updated: $_binNumber';
-        });
-        _printStoredData();
+    // Now attempt Firestore write; on failure, save locally for later sync
+    try {
+      await StreetDataService.submitReport(
+        subdivisionId,
+        street.id,
+        _fullnessLevel!,
+      );
+      debugPrint(
+        "✅ Report submitted to Firebase: Street ${street.id}, Fullness: $_fullnessLevel",
+      );
+      try {
+        await _flutterTts.speak("Data submitted successfully to database.");
+      } catch (e) {}
+      setState(() => _statusMessage = "Data saved to database.");
+      _clearData();
+    } catch (e) {
+      debugPrint("❌ Error submitting data: $e");
+      final submission = {
+        'streetName': _streetName?.toUpperCase(),
+        'fullnessLevel': _fullnessLevel?.toUpperCase(),
+        'recordedDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        'subdivisionId': subdivisionId,
+      };
+      try {
+        await LocalFileHelper.appendSubmission(submission);
+      } catch (e) {
+        debugPrint('❌ Error writing local submission: $e');
       }
+      try {
+        await _flutterTts.speak(
+          "Network error. Data saved locally for later sync.",
+        );
+      } catch (e) {}
+      setState(() => _statusMessage = "Saved locally (will sync when online).");
     }
   }
 
-  void _extractStreetName(String text, String trigger) {
+  Future<void> _extractStreetName(String text, String trigger) async {
     int triggerIndex = text.indexOf(trigger);
     if (triggerIndex == -1) return;
 
     String afterTrigger = text.substring(triggerIndex + trigger.length).trim();
-    List<String> words = afterTrigger.split(' ');
+    List<String> words = afterTrigger.split(RegExp(r'\s+'));
 
     if (words.isNotEmpty && words[0].isNotEmpty) {
       List<String> streetWords = [];
-      for (int i = 0; i < words.length && i < 4; i++) {
-        String word = words[i].toLowerCase();
-        // Stop if we encounter another keyword
-        if (binTriggers.contains(word) || fullnessKeywords.contains(word)) {
-          break;
+      // Stop parsing street name if we encounter any fullness phrase (some are multi-word)
+      for (int i = 0; i < words.length && i < 6; i++) {
+        // build lookahead for up to 3-word fullness phrases
+        bool stop = false;
+        for (int look = 3; look >= 1; look--) {
+          if (i + look <= words.length) {
+            final phrase = words.sublist(i, i + look).join(' ').toLowerCase();
+            if (fullnessMap.containsKey(phrase)) {
+              stop = true;
+              break;
+            }
+          }
         }
+        if (stop) break;
         streetWords.add(words[i]);
       }
 
       if (streetWords.isNotEmpty) {
-        String newStreetName = streetWords.join(' ');
+        String inputStreet = streetWords.join(' ');
+        final subdivisionId =
+            await AccountService.getSubdivisionIdForCurrentUser();
+        List<StreetMatch> matches = await StreetDataService.findMatches(
+          inputStreet,
+          subdivisionId: subdivisionId,
+        );
 
-        if (_streetName != newStreetName) {
+        if (matches.isEmpty) {
+          // Try exact lookup against the Streets list fetched from the subdivision doc
+          final allStreets = await StreetDataService.getStreets(
+            subdivisionId: subdivisionId,
+          );
+          final exact = allStreets.firstWhere(
+            (s) => s.name.toLowerCase() == inputStreet.toLowerCase(),
+            orElse: () => Street(id: '', name: ''),
+          );
+          if (exact.id.isEmpty) {
+            // Clear any previously set street so subsequent attempts can set a new one
+            setState(() {
+              _streetName = null;
+              _recordedDate = null;
+              _statusMessage = 'Street not found in database';
+            });
+            try {
+              await _flutterTts.speak(
+                "Street name not recognized. Please try again with a valid street name.",
+              );
+            } catch (e) {}
+            _printStoredData();
+            return;
+          }
+          // Use exact match
           setState(() {
-            _streetName = newStreetName;
+            _streetName = exact.name;
             _recordedDate = DateTime.now();
             _statusMessage = 'Street updated: $_streetName';
           });
           _printStoredData();
+          return;
+        }
+
+        // Get the best match (first in the sorted list)
+        StreetMatch bestMatch = matches.first;
+
+        if (bestMatch.score <= 2) {
+          // Very close match
+          if (_streetName != bestMatch.street.name) {
+            setState(() {
+              _streetName = bestMatch.street.name;
+              _recordedDate = DateTime.now();
+              _statusMessage = 'Street updated: $_streetName';
+            });
+            _printStoredData();
+          }
+        } else if (bestMatch.score <= 3) {
+          // Possible match, but needs confirmation
+          // Ask user to repeat exact name; clear previous name to avoid stale data
+          try {
+            await _flutterTts.speak(
+              "Did you mean ${bestMatch.street.name}? Please say the exact street name.",
+            );
+          } catch (e) {}
+          setState(() {
+            _statusMessage = 'Did you mean: ${bestMatch.street.name}?';
+            _streetName = null;
+            _recordedDate = null;
+          });
+        } else {
+          try {
+            await _flutterTts.speak(
+              "Street name not recognized. Please try again with a valid street name.",
+            );
+          } catch (e) {}
+          setState(() {
+            _statusMessage = 'Street not found in database';
+            _streetName = null;
+            _recordedDate = null;
+          });
         }
       }
     }
   }
 
   bool _checkFullnessLevel(String text) {
-    for (var keyword in fullnessKeywords) {
-      if (text.contains(keyword)) {
-        if (_fullnessLevel != keyword) {
+    try {
+      // Check multi-word phrases first: sort mapped keys by length descending
+      final keys = fullnessMap.keys.toList()
+        ..sort((a, b) => b.length.compareTo(a.length));
+      for (final key in keys) {
+        if (text.contains(key)) {
+          final canonical = fullnessMap[key]!;
+          // Update fullness even if same value is detected again; this refreshes recordedDate
           setState(() {
-            _fullnessLevel = keyword;
+            _fullnessLevel = canonical;
             _recordedDate = DateTime.now();
             _statusMessage = 'Fullness updated: $_fullnessLevel';
           });
@@ -433,42 +520,16 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
           return true;
         }
       }
+    } catch (e) {
+      debugPrint('Error checking fullness level: $e');
     }
     return false;
-  }
-
-  String _convertWordToNumber(String word) {
-    const wordToNumber = {
-      'one': '1',
-      'isa': '1',
-      'two': '2',
-      'dalawa': '2',
-      'three': '3',
-      'tatlo': '3',
-      'four': '4',
-      'apat': '4',
-      'five': '5',
-      'lima': '5',
-      'six': '6',
-      'anim': '6',
-      'seven': '7',
-      'pito': '7',
-      'eight': '8',
-      'walo': '8',
-      'nine': '9',
-      'siyam': '9',
-      'ten': '10',
-      'sampu': '10',
-    };
-
-    return wordToNumber[word.toLowerCase()] ?? word;
   }
 
   void _printStoredData() {
     debugPrint('=== Stored Data ===');
     debugPrint('Fullness Level: $_fullnessLevel');
     debugPrint('Street Name: $_streetName');
-    debugPrint('Bin Number: $_binNumber');
     debugPrint('Recorded Date: $_recordedDate');
     debugPrint('==================');
   }
@@ -477,67 +538,92 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
     setState(() {
       _fullnessLevel = null;
       _streetName = null;
-      _binNumber = null;
       _recordedDate = null;
       _lastWords = '';
       _statusMessage = 'Data cleared';
       _isAwaitingClearConfirmation = false;
-      _isAwaitingSubmitConfirmation = false;
     });
     debugPrint('All data cleared');
   }
 
   Future<void> _syncPendingSubmissions() async {
-    final submissions = await LocalFileHelper.readAllSubmissions();
-    if (submissions.isEmpty) {
-      debugPrint("📂 No local submissions to sync.");
-      return;
-    }
-
-    debugPrint("🌐 Syncing ${submissions.length} local submissions...");
-
-    bool allSynced = true;
-    for (final submission in submissions) {
-      try {
-        final response = await http.post(
-          Uri.parse("https://your-server.com/api/submit"),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(submission),
-        );
-
-        if (response.statusCode != 200) {
-          allSynced = false;
-          debugPrint("⚠️ Failed to sync: ${response.statusCode}");
-        }
-      } catch (e) {
-        allSynced = false;
-        debugPrint("❌ Sync error: $e");
-        break;
+    try {
+      final submissions = await LocalFileHelper.readAllSubmissions();
+      if (submissions.isEmpty) {
+        debugPrint("📂 No local submissions to sync.");
+        return;
       }
-    }
 
-    if (allSynced) {
-      await LocalFileHelper.clearFile();
-      debugPrint("✅ All local submissions synced and file cleared.");
-      await _flutterTts.speak("All saved data uploaded successfully.");
-      setState(() => _statusMessage = "All local data synced.");
-    } else {
-      debugPrint("⚠️ Some submissions failed. File kept for retry.");
+      debugPrint("🌐 Syncing ${submissions.length} local submissions...");
+
+      List<Map<String, dynamic>> failed = [];
+
+      for (final submission in submissions) {
+        try {
+          final subId =
+              (submission['subdivisionId'] as String?) ?? '2k2oae09diska';
+
+          final inputStreet = (submission['streetName'] as String?) ?? '';
+          // Use fuzzy matching to find the best street within the subdivision
+          final matches = await StreetDataService.findMatches(
+            inputStreet,
+            subdivisionId: subId,
+          );
+
+          if (matches.isEmpty) {
+            throw Exception(
+              'Street not found: $inputStreet in subdivision $subId',
+            );
+          }
+
+          final best = matches.first.street;
+
+          // Consult _last meta to avoid duplicate uploads (if same fillRate/day)
+          // We rely on submitReport's transaction-side _last check, but do a small
+          // pre-check to avoid unnecessary work.
+          final fullness = (submission['fullnessLevel'] as String?) ?? '';
+
+          await StreetDataService.submitReport(subId, best.id, fullness);
+        } catch (e) {
+          debugPrint("❌ Failed to sync submission: $e");
+          failed.add(Map<String, dynamic>.from(submission));
+          continue;
+        }
+      }
+
+      if (failed.isEmpty) {
+        await LocalFileHelper.clearFile();
+        debugPrint("✅ All local submissions synced and file cleared.");
+        await _flutterTts.speak("All saved data uploaded successfully.");
+        setState(() => _statusMessage = "All local data synced.");
+      } else {
+        // Overwrite local file with only failed submissions
+        await LocalFileHelper.writeAllSubmissions(failed);
+        debugPrint(
+          "⚠️ Some submissions failed. ${failed.length} kept for retry.",
+        );
+        setState(
+          () => _statusMessage = "Some submissions failed, will retry later.",
+        );
+      }
+    } catch (e) {
+      debugPrint("❌ Sync error: $e");
+      setState(() => _statusMessage = "Sync error, will retry later.");
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
-
+    super.build(context); // Required by AutomaticKeepAliveClientMixin
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Column(
         children: <Widget>[
-          // Status indicator
+          // 🔴 Status indicator bar
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: _isActive ? Colors.red.shade50 : Colors.grey.shade200,
+            color: _isActive ? AppColors.bgColor : Colors.grey.shade200,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -545,41 +631,52 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
                   width: 12,
                   height: 12,
                   decoration: BoxDecoration(
-                    color: _isActive ? Colors.red : Colors.grey,
+                    color: _isActive
+                        ? AppColors.primaryGreen
+                        : Colors.grey.shade400,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   _isActive ? "Continuously Listening..." : "Not Listening",
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: _isActive
+                        ? AppColors.primaryGreen
+                        : Colors.grey.shade700,
                   ),
                 ),
               ],
             ),
           ),
 
-          // Stored data card
+          // 🗂️ Stored data card + transcript
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // 📋 Stored Data card
                   Card(
-                    elevation: 4,
+                    elevation: 3,
+                    color: AppColors.bgColor, // ✅ Using theme color
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Stored Data',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
+                              color: AppColors.primaryGreen,
                             ),
                           ),
                           const Divider(height: 24),
@@ -594,47 +691,37 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
                             Icons.location_on,
                           ),
                           _buildDataRow(
-                            'Bin Number',
-                            _binNumber,
-                            Icons.delete_outline,
-                          ),
-                          _buildDataRow(
                             'Recorded Date',
                             _recordedDate != null
-                                ? '${_recordedDate!.day}/${_recordedDate!.month}/${_recordedDate!.year} '
-                                      '${_recordedDate!.hour}:${_recordedDate!.minute.toString().padLeft(2, '0')}'
+                                ? '${_recordedDate!.year}-${_recordedDate!.month.toString().padLeft(2, '0')}-${_recordedDate!.day.toString().padLeft(2, '0')}'
                                 : null,
                             Icons.calendar_today,
-                          ),
-                          _buildDataRow(
-                            'Latitude',
-                            _latitude != null ? _latitude.toString() : null,
-                            Icons.location_searching,
-                          ),
-                          _buildDataRow(
-                            'Longitude',
-                            _longitude != null ? _longitude.toString() : null,
-                            Icons.location_searching,
                           ),
                         ],
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 16),
 
-                  // Live transcript
+                  // 🎙️ Live Transcript card
                   Card(
-                    elevation: 4,
+                    elevation: 3,
+                    color: AppColors.bgColor, // ✅ Using same theme color
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Live Transcript',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
+                              color: AppColors.primaryGreen,
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -649,25 +736,29 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
                     ),
                   ),
 
-                  // Status message
+                  // ✅ Status message card (only if message exists)
                   if (_statusMessage.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Card(
-                      color: Colors.green.shade50,
+                      elevation: 3,
+                      color: AppColors.bgColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(12.0),
                         child: Row(
                           children: [
                             Icon(
                               Icons.check_circle,
-                              color: Colors.green.shade700,
+                              color: AppColors.primaryGreen,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 _statusMessage,
                                 style: TextStyle(
-                                  color: Colors.green.shade700,
+                                  color: AppColors.primaryGreen,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -691,7 +782,7 @@ class VoiceTabState extends State<VoiceTab> with AutomaticKeepAliveClientMixin {
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey.shade600),
+          Icon(icon, size: 20, color: AppColors.primaryGreen), // ✅ themed icon
           const SizedBox(width: 12),
           Expanded(
             child: Column(

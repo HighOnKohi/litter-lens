@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 class LocalFileHelper {
   static Future<File> _getFile() async {
@@ -20,7 +21,29 @@ class LocalFileHelper {
       }
     }
 
-    existing.add(submission);
+    // Ensure stored text is uppercase and date is yyyy-MM-dd
+    final normalized = Map<String, dynamic>.from(submission);
+    if (normalized.containsKey('streetName') &&
+        normalized['streetName'] != null) {
+      normalized['streetName'] = normalized['streetName']
+          .toString()
+          .toUpperCase();
+    }
+    if (normalized.containsKey('fullnessLevel') &&
+        normalized['fullnessLevel'] != null) {
+      normalized['fullnessLevel'] = normalized['fullnessLevel']
+          .toString()
+          .toUpperCase();
+    }
+    if (!normalized.containsKey('recordedDate') ||
+        normalized['recordedDate'] == null) {
+      // Store recordedDate as yyyy-MM-dd (no time) to match Firestore day format
+      normalized['recordedDate'] = DateFormat(
+        'yyyy-MM-dd',
+      ).format(DateTime.now());
+    }
+
+    existing.add(normalized);
     await file.writeAsString(jsonEncode(existing));
   }
 
@@ -41,5 +64,13 @@ class LocalFileHelper {
     if (await file.exists()) {
       await file.writeAsString(jsonEncode([]));
     }
+  }
+
+  // Overwrite storage with a provided list of submissions (used to keep failed ones)
+  static Future<void> writeAllSubmissions(
+    List<Map<String, dynamic>> submissions,
+  ) async {
+    final file = await _getFile();
+    await file.writeAsString(jsonEncode(submissions));
   }
 }

@@ -12,11 +12,15 @@ List<CameraDescription> cameras = [];
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  cameras = await availableCameras();
+  try {
+    cameras = await availableCameras();
+  } catch (e) {
+    // On some emulator images CameraX/Play Services may misbehave and cause
+    // long retries or crashes. Fall back to no cameras so the app can run.
+    cameras = <CameraDescription>[];
+  }
 
   runApp(const MyApp());
 }

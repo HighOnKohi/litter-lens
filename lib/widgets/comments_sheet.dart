@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:litter_lens/services/post_service.dart';
+import 'package:litter_lens/theme.dart'; // ✅ import your theme
 
 class CommentsSheet extends StatefulWidget {
   final String postId;
@@ -24,7 +25,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
   bool _sending = false;
 
   String? _currentUserPhotoUrl;
-
   static const String _defaultAvatarUrl = '';
 
   @override
@@ -46,17 +46,20 @@ class _CommentsSheetState extends State<CommentsSheet> {
       String? photo = user.photoURL;
 
       try {
-        final snap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         final data = snap.data();
-        if (data != null && data['photoUrl'] is String && (data['photoUrl'] as String).trim().isNotEmpty) {
+        if (data != null &&
+            data['photoUrl'] is String &&
+            (data['photoUrl'] as String).trim().isNotEmpty) {
           photo = (data['photoUrl'] as String).trim();
         }
-      } catch (_) {
-      }
+      } catch (_) {}
 
       if (mounted) setState(() => _currentUserPhotoUrl = photo);
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   String _fmtTs(Timestamp? ts) {
@@ -67,10 +70,18 @@ class _CommentsSheetState extends State<CommentsSheet> {
   }
 
   String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return 'U';
-    if (parts.length == 1) return parts.first.characters.take(1).toString().toUpperCase();
-    return (parts.first.characters.take(1).toString() + parts.last.characters.take(1).toString()).toUpperCase();
+    if (parts.length == 1) {
+      return parts.first.characters.take(1).toString().toUpperCase();
+    }
+    return (parts.first.characters.take(1).toString() +
+            parts.last.characters.take(1).toString())
+        .toUpperCase();
   }
 
   Future<void> _send() async {
@@ -96,6 +107,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+
     return SafeArea(
       child: SizedBox(
         height: media.size.height * 0.75,
@@ -111,7 +123,16 @@ class _CommentsSheetState extends State<CommentsSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            const ListTile(dense: true, title: Text('Comments')),
+            const ListTile(
+              dense: true,
+              title: Text(
+                'Comments',
+                style: TextStyle(
+                  color: AppColors.primaryGreen,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
             const Divider(height: 1),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -121,7 +142,9 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final docs = snap.data?.docs ?? [];
-                  if (docs.isEmpty) return const Center(child: Text('No comments yet.'));
+                  if (docs.isEmpty) {
+                    return const Center(child: Text('No comments yet.'));
+                  }
                   return ListView.builder(
                     itemCount: docs.length,
                     itemBuilder: (context, i) {
@@ -130,25 +153,42 @@ class _CommentsSheetState extends State<CommentsSheet> {
                       final id = doc.id;
 
                       final text = (d['text'] as String?)?.trim() ?? '';
-                      final name = ((d['username'] ?? d['userName']) as String?)?.trim() ?? 'User';
-                      final uid = ((d['uid'] ?? d['userId']) as String?)?.trim() ?? '';
+                      final name =
+                          ((d['username'] ?? d['userName']) as String?)
+                              ?.trim() ??
+                          'User';
                       final createdAt = d['createdAt'] as Timestamp?;
-                      final likedBy = List<String>.from(d['likedBy'] ?? const <String>[]);
+                      final likedBy = List<String>.from(
+                        d['likedBy'] ?? const <String>[],
+                      );
                       final likesCount = (d['likesCount'] ?? 0) as int;
                       final isLiked = likedBy.contains(widget.currentUserId);
 
-                      final commentPhoto = (d['photoUrl'] as String?)?.trim() ?? '';
+                      final commentPhoto =
+                          (d['photoUrl'] as String?)?.trim() ?? '';
                       final avatarUrl = commentPhoto.isNotEmpty
                           ? commentPhoto
-                          : (_defaultAvatarUrl.trim().isNotEmpty ? _defaultAvatarUrl : '');
+                          : (_defaultAvatarUrl.trim().isNotEmpty
+                                ? _defaultAvatarUrl
+                                : '');
 
                       return ListTile(
                         leading: CircleAvatar(
                           radius: 18,
-                          backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                          child: avatarUrl.isEmpty ? Text(_initials(name)) : null,
+                          backgroundImage: avatarUrl.isNotEmpty
+                              ? NetworkImage(avatarUrl)
+                              : null,
+                          child: avatarUrl.isEmpty
+                              ? Text(_initials(name))
+                              : null,
                         ),
-                        title: Text(name),
+                        title: Text(
+                          name,
+                          style: const TextStyle(
+                            color: AppColors.primaryGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -170,8 +210,12 @@ class _CommentsSheetState extends State<CommentsSheet> {
                               ),
                             IconButton(
                               icon: Icon(
-                                isLiked ? Icons.favorite : Icons.favorite_border,
-                                color: isLiked ? Colors.red : null,
+                                isLiked
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                color: isLiked
+                                    ? Colors.red
+                                    : AppColors.primaryGreen,
                               ),
                               onPressed: () => PostService.toggleCommentLike(
                                 postId: widget.postId,
@@ -182,7 +226,10 @@ class _CommentsSheetState extends State<CommentsSheet> {
                             ),
                           ],
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                       );
                     },
                   );
@@ -195,15 +242,13 @@ class _CommentsSheetState extends State<CommentsSheet> {
               child: Row(
                 children: [
                   Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
-                      decoration: const InputDecoration(
-                        hintText: 'Add a comment...',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
+                    // ✅ replaced TextField with InputField
+                    child: InputField(
+                      inputController: _controller,
+                      obscuring: false,
+                      label: 'Add a comment...',
+                      maxLines: 2,
+                      minLines: 1,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -211,8 +256,11 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     onPressed: _sending ? null : _send,
                     icon: _sending
                         ? const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.send),
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send, color: AppColors.primaryGreen),
                     tooltip: 'Send',
                   ),
                 ],

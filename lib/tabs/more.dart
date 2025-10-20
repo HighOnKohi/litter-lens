@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:litter_lens/login_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/account_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MoreTab extends StatefulWidget {
   final void Function(int) onNavigateTo;
@@ -90,7 +92,7 @@ class _MoreTabState extends State<MoreTab> {
         children: [
           buildSectionTitle("Account"),
           Card(
-            color: Color(0xFFEEFFF7),
+            color: const Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -109,7 +111,7 @@ class _MoreTabState extends State<MoreTab> {
           // HOA Management
           buildSectionTitle("HOA Management"),
           Card(
-            color: Color(0xFFEEFFF7),
+            color: const Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -133,7 +135,7 @@ class _MoreTabState extends State<MoreTab> {
           // Help
           buildSectionTitle("Help"),
           Card(
-            color: Color(0xFFEEFFF7),
+            color: const Color(0xFFEEFFF7),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -193,7 +195,22 @@ class _MoreTabState extends State<MoreTab> {
               ),
             ),
             onPressed: () async {
-              await FirebaseAuth.instance.signOut();
+              // Clear cached subdivision and uid so auto-restore won't re-login
+              try {
+                await AccountService.clearCache();
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('cached_role');
+              } catch (e) {
+                // ignore prefs errors
+              }
+
+              // Sign out of FirebaseAuth (if used)
+              try {
+                await FirebaseAuth.instance.signOut();
+              } catch (e) {
+                // ignore
+              }
+
               if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,

@@ -10,24 +10,28 @@ class UserService {
       FirebaseFirestore.instance.collection('users');
 
   static Future<String> uploadProfileImage(
-      List<int> bytes, {
-        required String filename,
-      }) async {
+    List<int> bytes, {
+    required String filename,
+  }) async {
     final cloud = CloudinaryConfig.cloudName;
     final preset = CloudinaryConfig.uploadPreset;
     if (cloud.isEmpty || preset.isEmpty) {
       throw StateError('Cloudinary config missing');
     }
-    final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloud/image/upload');
+    final uri = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$cloud/image/upload',
+    );
     final req = http.MultipartRequest('POST', uri)
       ..fields['upload_preset'] = preset
       ..fields['profilefolder'] = 'profiles';
-    req.files.add(http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: filename,
-      contentType: MediaType('image', _extToSubtype(filename)),
-    ));
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: filename,
+        contentType: MediaType('image', _extToSubtype(filename)),
+      ),
+    );
     final streamed = await req.send();
     final resp = await http.Response.fromStream(streamed);
     if (resp.statusCode != 200) {
@@ -42,7 +46,9 @@ class UserService {
   static Future<void> updateProfilePhoto(String photoUrl) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw StateError('Not signed in');
-    await _users.doc(user.uid).set({'photoUrl': photoUrl}, SetOptions(merge: true));
+    await _users.doc(user.uid).set({
+      'photoUrl': photoUrl,
+    }, SetOptions(merge: true));
     await user.updatePhotoURL(photoUrl);
   }
 

@@ -44,19 +44,128 @@ class _AccountTabState extends State<AccountTab> {
   Future<void> _loadProfile() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        // If there's no FirebaseAuth user (map-shaped login), try to load
+        // profile via cached synthetic uid or by scanning account collections.
+        final cached = AccountService.cachedUid;
+        if (cached != null && cached.contains(':')) {
+          final parts = cached.split(':');
+          if (parts.length >= 3) {
+            final col = parts[0];
+            final docId = parts[1];
+            final key = parts.sublist(2).join(':');
+            try {
+              final doc = await FirebaseFirestore.instance
+                  .collection(col)
+                  .doc(docId)
+                  .get();
+              if (doc.exists) {
+                final map = doc.data() ?? {};
+                final val = map[key];
+                if (val is Map<String, dynamic>) {
+                  if (!mounted) return;
+                  setState(() {
+                    _currentUsername = (val['Username'] as String?) ?? key;
+                    _photoUrl = (val['photoUrl'] as String?) ?? '';
+                  });
+                  return;
+                }
+              }
+            } catch (_) {}
+          }
+        }
 
+        // try scanning the map-shaped collections for a matching entry
+        final cachedUid = AccountService.cachedUid;
+        if (cachedUid != null && !cachedUid.contains(':')) {
+          // might be a plain uid stored from users collection
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(cachedUid)
+                .get();
+            final data = snap.data() ?? {};
+            if (snap.exists && data.isNotEmpty) {
+              if (!mounted) return;
+              setState(() {
+                _currentUsername = (data['Username'] as String?) ?? '';
+                _photoUrl = (data['photoUrl'] as String?) ?? '';
+              });
+              return;
+            }
+          } catch (_) {}
+        }
+
+        // fallback: try to find by username stored in cache or last-known username
+        // Nothing more to do if not found.
+        return;
+      }
+      // First try the canonical users collection
       final snap = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
       final data = snap.data() ?? {};
-      if (!mounted) return;
-      setState(() {
-        _currentUsername =
-            (data['username'] as String?) ?? (user.displayName ?? '');
-        _photoUrl = (data['photoUrl'] as String?) ?? (user.photoURL ?? '');
-      });
+      if (snap.exists && data.isNotEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _currentUsername =
+              (data['Username'] as String?) ?? (user.displayName ?? '');
+          _photoUrl = (data['photoUrl'] as String?) ?? (user.photoURL ?? '');
+        });
+        return;
+      }
+
+      // If not found in users, try to resolve via cached synthetic uid
+      final cached = AccountService.cachedUid;
+      if (cached != null && cached.contains(':')) {
+        // synthetic format: Collection:DocId:Key
+        final parts = cached.split(':');
+        if (parts.length >= 3) {
+          final col = parts[0];
+          final docId = parts[1];
+          final key = parts.sublist(2).join(':');
+          try {
+            final doc = await FirebaseFirestore.instance
+                .collection(col)
+                .doc(docId)
+                .get();
+            if (doc.exists) {
+              final map = doc.data() ?? {};
+              final val = map[key];
+              if (val is Map<String, dynamic>) {
+                if (!mounted) return;
+                setState(() {
+                  _currentUsername = (val['Username'] as String?) ?? key;
+                  _photoUrl = (val['photoUrl'] as String?) ?? '';
+                });
+                return;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Final fallback: scan known account collections for an entry matching
+      // the Firebase displayName or email-derived username.
+      final usernameToFind = (user.displayName ?? '').isNotEmpty
+          ? user.displayName!
+          : (user.email ?? '');
+      if (usernameToFind.isNotEmpty) {
+        try {
+          final found = await AccountService.findMapAccountByUsername(
+            usernameToFind,
+          );
+          if (found != null) {
+            if (!mounted) return;
+            setState(() {
+              _currentUsername = usernameToFind;
+              _photoUrl = '';
+            });
+            return;
+          }
+        } catch (_) {}
+      }
     } catch (_) {
       _toast('Failed to load profile.');
     }
@@ -73,8 +182,9 @@ class _AccountTabState extends State<AccountTab> {
     final confirm = _confirmPwCtrl.text.trim();
 
     if (currentPw.isEmpty) return _toast('Enter your current password.');
-    if (newPw.length < 6)
+    if (newPw.length < 6) {
       return _toast('Password must be at least 6 characters.');
+    }
     if (newPw != confirm) return _toast('Passwords do not match.');
 
     setState(() => _loading = true);

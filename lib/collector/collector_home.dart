@@ -1,22 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:litter_lens/tabs/about.dart';
-import 'package:litter_lens/tabs/analytics.dart';
+import 'package:litter_lens/collector/collector_more.dart';
 import 'package:litter_lens/tabs/guide.dart';
-import 'package:litter_lens/tabs/more.dart';
 import 'package:litter_lens/tabs/support.dart';
 import 'package:litter_lens/tabs/voice.dart';
 import 'package:litter_lens/tabs/home.dart';
 import 'package:litter_lens/tabs/account.dart';
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+class CollectorHome extends StatefulWidget {
+  const CollectorHome({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<CollectorHome> createState() => _CollectorHomeState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _CollectorHomeState extends State<CollectorHome> {
   int _selectedIndex = 0;
   int _lastMainIndex = 0;
 
@@ -32,9 +30,7 @@ class _HomePageState extends State<HomePage> {
   late final List<Widget> _pages = [
     const HomeTab(),
     const VoiceTab(),
-    MoreTab(onNavigateTo: _onItemTapped),
-    const AnalyticsTab(),
-    const AboutTab(),
+    CollectorMore(onNavigateTo: _onItemTapped),
     const GuideTab(),
     const SupportTab(),
     const AccountTab(),

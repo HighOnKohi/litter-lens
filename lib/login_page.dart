@@ -8,8 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'services/account_service.dart';
 import 'home_page.dart';
-import 'tabs/resident_home.dart';
-import 'tabs/collector_home.dart';
+import 'resident/resident_home.dart';
+import 'collector/collector_home.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});

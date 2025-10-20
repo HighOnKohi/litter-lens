@@ -34,10 +34,80 @@ class AccountService {
     _cache.subdivisionId = subdiv;
   }
 
+  static String? get cachedUid => _cache.uid;
+
+  /// Attempts to find a matching map-shaped account entry for [username]
+  /// across known account collections. Returns a synthetic uid in the
+  /// form 'Collection:DocId:Key' when found along with the SubdivisionID.
+  static Future<Map<String, String>?> findMapAccountByUsername(
+    String username,
+  ) async {
+    final collectionsToCheck = [
+      'Test_Accounts',
+      'Resident_Accounts',
+      'Trash_Collector_Accounts',
+    ];
+
+    for (final col in collectionsToCheck) {
+      try {
+        final snap = await FirebaseFirestore.instance.collection(col).get();
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          for (final entry in data.entries) {
+            final key = entry.key;
+            final val = entry.value;
+            if (val is Map<String, dynamic>) {
+              final uname = (val['Username'] ?? key ?? '').toString();
+              if (uname.toLowerCase() == username.toLowerCase()) {
+                final subdiv = (val['SubdivisionID'] ?? doc.id).toString();
+                final synthetic = '$col:${doc.id}:$key';
+                return {'uid': synthetic, 'subdivisionId': subdiv};
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // ignore and try next collection
+      }
+    }
+    return null;
+  }
+
   static String? get cachedSubdivisionId => _cache.subdivisionId;
 
   // Attempt to resolve the current user's SubdivisionID by checking known account collections.
   static Future<String?> resolveSubdivisionIdForUid(String uid) async {
+    // Support synthetic uid format 'Collection:DocId:Key' used for map-shaped
+    // accounts cached earlier. If present, resolve directly from that doc.
+    if (uid.contains(':')) {
+      try {
+        final parts = uid.split(':');
+        if (parts.length >= 3) {
+          final col = parts[0];
+          final docId = parts[1];
+          final key = parts.sublist(2).join(':');
+          final doc = await FirebaseFirestore.instance
+              .collection(col)
+              .doc(docId)
+              .get();
+          if (doc.exists) {
+            final data = doc.data() ?? {};
+            final val = data[key];
+            if (val is Map<String, dynamic>) {
+              if (val.containsKey('SubdivisionID'))
+                return val['SubdivisionID'] as String;
+            }
+            // fallback to doc-level SubdivisionID
+            if (data.containsKey('SubdivisionID'))
+              return data['SubdivisionID'] as String;
+            return docId;
+          }
+        }
+      } catch (e) {
+        // ignore and continue with other heuristics
+      }
+    }
+
     final collectionsToCheck = [
       'Resident_Accounts',
       'Trash_Collector_Accounts',
@@ -46,6 +116,7 @@ class AccountService {
 
     for (final col in collectionsToCheck) {
       try {
+        // direct doc lookup
         final docRef = FirebaseFirestore.instance.collection(col).doc(uid);
         final doc = await docRef.get();
         if (doc.exists) {
@@ -55,6 +126,7 @@ class AccountService {
           }
         }
 
+        // query for a uid field inside documents
         final q = await FirebaseFirestore.instance
             .collection(col)
             .where('uid', isEqualTo: uid)

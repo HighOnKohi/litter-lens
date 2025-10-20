@@ -1,28 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:litter_lens/resident/resident_more.dart';
 import 'package:litter_lens/tabs/about.dart';
-import 'package:litter_lens/tabs/analytics.dart';
 import 'package:litter_lens/tabs/guide.dart';
-import 'package:litter_lens/tabs/more.dart';
 import 'package:litter_lens/tabs/support.dart';
-import 'package:litter_lens/tabs/voice.dart';
 import 'package:litter_lens/tabs/home.dart';
 import 'package:litter_lens/tabs/account.dart';
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+class ResidentHome extends StatefulWidget {
+  const ResidentHome({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<ResidentHome> createState() => _ResidentHomeState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _ResidentHomeState extends State<ResidentHome> {
   int _selectedIndex = 0;
   int _lastMainIndex = 0;
 
   void _onItemTapped(int index) {
     setState(() {
-      if (index <= 2) {
+      if (index <= 1) {
         _lastMainIndex = index;
       }
       _selectedIndex = index;
@@ -31,9 +29,7 @@ class _HomePageState extends State<HomePage> {
 
   late final List<Widget> _pages = [
     const HomeTab(),
-    const VoiceTab(),
-    MoreTab(onNavigateTo: _onItemTapped),
-    const AnalyticsTab(),
+    ResidentMore(onNavigateTo: _onItemTapped),
     const AboutTab(),
     const GuideTab(),
     const SupportTab(),
@@ -51,7 +47,7 @@ class _HomePageState extends State<HomePage> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_selectedIndex <= 2)
+            if (_selectedIndex <= 1)
               Builder(
                 builder: (ctx) {
                   return IconButton(
@@ -76,7 +72,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         // Show a back arrow when not on main tabs
-        leading: (_selectedIndex <= 2)
+        leading: (_selectedIndex <= 1)
             ? null
             : IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -88,7 +84,6 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: BottomNavigationBar(
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          const BottomNavigationBarItem(icon: Icon(Icons.mic), label: 'Voice'),
           BottomNavigationBarItem(
             icon: SvgPicture.asset(
               'assets/images/logo.svg',
@@ -104,7 +99,7 @@ class _HomePageState extends State<HomePage> {
             label: 'More',
           ),
         ],
-        currentIndex: (_selectedIndex <= 2) ? _selectedIndex : 0,
+        currentIndex: (_selectedIndex <= 1) ? _selectedIndex : 0,
         onTap: _onItemTapped,
       ),
     );

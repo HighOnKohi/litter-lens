@@ -43,46 +43,51 @@ Ultimately, this project seeks to provide a framework for modern, sustainable, a
    cd Litter Lens
    ```
 
-2. **Install dependencies**
+# 🌱 Litter Lens
 
-   ```bash
-   flutter pub get
-   ```
+This study proposes the development of a Waste Monitoring and Analytics System designed for residential subdivisions. The system consists of both a website and an Android application that work together to streamline waste monitoring and communication within the community.
 
-3. **Configure Firebase**
+The system serves as a centralized digital platform, enabling trash collectors to submit real-time data via voice commands through the Android app and allowing subdivision administrators to monitor and analyze this data via the web-based dashboard. At the same time, residents can use the Android app to view announcements, reminders, and updates related to waste collection and community programs.
 
-   - Create a Firebase project.
-   - Add your Android/iOS app.
-   - Download `google-services.json` (Android) or `GoogleService-Info.plist` (iOS).
-   - Place them in the appropriate directories.
+A key feature of the proposed system is its voice-activated data submission. Trash collectors can verbally report information such as the location and how full the bin is through their Android devices. The system processes and stores these reports automatically, tagging them with the corresponding date, time, and subdivision.
 
-4. **Run the app**
+Administrators have access to a web dashboard that provides real-time analytics, graphs of waste buildup, and a blueprint planner. With these tools, administrators can make informed decisions on optimizing garbage truck routes, identifying problem-prone areas, and assessing the effectiveness of waste programs.
 
-   ```bash
-   flutter run
-   ```
+Ultimately, this project seeks to modernize subdivision waste monitoring through integrated mobile and web technologies, combining voice-driven data input, analytics, and communication tools into one unified system. This innovation promotes cleaner, more efficient, and more sustainable community operations.
 
 ---
 
-## 📱 Usage
+## What the app does (high level)
 
-- Open the app and sign in with your account.
-- Upload a photo of a trash bin to check its fullness status.
-- View real-time waste data from your subdivision.
-- Administrators can use insights to plan efficient collection schedules.
-
----
-
-## 🔮 Future Enhancements
-
-- AI-powered image recognition improvements.
-- Integration with IoT smart bins for direct monitoring.
-- Data visualization dashboards for administrators.
-- Multi-language support for wider adoption.
+- Voice-driven data submission for quick field reporting by trash collectors.
+- Android app for collectors and residents:
+  - Collectors: submit reports via voice; attach photo evidence when needed.
+  - Residents: view announcements, reminders, and locality updates from administrators.
+- Web dashboard for administrators with real-time analytics, charts, and a blueprint planner to support route optimization and program evaluation.
+- Stores timestamps and subdivision context alongside reports to support filtering and analytics.
+- Provides a user-friendly interface for communication between collectors, residents, and administrators.
 
 ---
 
-## 👥 Contributors
+## Quick start (developer)
+
+1. Install dependencies:
+
+```bash
+flutter pub get
+```
+
+2. Run the app (development):
+
+```bash
+flutter run
+```
+
+Notes: If you run into emulator camera or Google Play Services issues, try a physical device or a different emulator image.
+
+---
+
+## Contributors
 
 - **Daradal, Dowell Nathan** – Developer / Researcher
 - **Francisco, Rafaelle** – Developer / Researcher
@@ -93,7 +98,6 @@ Ultimately, this project seeks to provide a framework for modern, sustainable, a
 
 ---
 
-## 📜 License
+## License / Attribution
 
-This project is developed as part of an academic thesis.
-Usage and distribution rights may vary depending on institutional policies.
+This repository contains work for an academic thesis. Check project maintainers or your institution for licensing and distribution permissions.

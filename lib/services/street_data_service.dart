@@ -176,32 +176,34 @@ class StreetDataService {
           streetsMap[streetKey] = streetMap;
         }
 
-        // Use a reserved key '_last' to store the last submission for quick duplicate checks
+        final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final normalizedFill = fillRate.toUpperCase();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+        // Check _last metadata for quick duplicate detection (within 5 seconds)
         final lastMeta = (streetMap['_last'] is Map<String, dynamic>)
             ? Map<String, dynamic>.from(
                 streetMap['_last'] as Map<String, dynamic>,
               )
             : null;
-        final lastFill = (lastMeta != null && lastMeta.containsKey('fillRate'))
-            ? (lastMeta['fillRate'] ?? '').toString().toUpperCase()
-            : null;
 
-        final normalizedFill = fillRate.toUpperCase();
+        if (lastMeta != null) {
+          final lastFill = lastMeta['fillRate']?.toString().toUpperCase();
+          final lastDay = lastMeta['day']?.toString();
+          final lastTs = lastMeta['timestamp'] as int?;
 
-        if (lastFill != null && lastFill == normalizedFill) {
-          // Same as last recorded fillRate — update the _last timestamp only
-          streetMap['_last'] = {
-            'day_ts':
-                FieldValue.serverTimestamp(), // server timestamp for ordering
-            'day': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-            'fillRate': normalizedFill,
-          };
-          // Put back nested maps (tx.set expects the whole document map)
-          streetsMap[streetKey] = streetMap;
-          muniMap['streets'] = streetsMap;
-          base[muniId] = muniMap;
-          tx.set(reportsDocRef, base);
-          return;
+          // Check if duplicate: same day, same fillRate, within 5 seconds
+          if (lastDay == todayStr &&
+              lastFill == normalizedFill &&
+              lastTs != null) {
+            final diffMs = (nowMs - lastTs).abs();
+            if (diffMs < 5000) {
+              print(
+                '⚠️ Duplicate submission detected: $normalizedFill already recorded ${diffMs}ms ago',
+              );
+              return; // Silently succeed without writing
+            }
+          }
         }
 
         // Determine next numeric index for new entry
@@ -218,28 +220,33 @@ class StreetDataService {
         // Store values in uppercase and include a simple yyyy-MM-dd string for day
         streetMap[nextIndex.toString()] = {
           'day_ts': FieldValue.serverTimestamp(),
-          'day': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          'day': todayStr,
           'fillRate': normalizedFill,
         };
 
-        // Update last meta as well (as a map, not part of numeric entries)
+        // Update _last metadata in memory for future duplicate checks
+        // (but DON'T write it to the database)
         streetMap['_last'] = {
-          'day_ts': FieldValue.serverTimestamp(),
-          'day': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+          'timestamp': nowMs,
+          'day': todayStr,
           'fillRate': normalizedFill,
         };
 
-        // Put back nested maps before write
-        streetsMap[streetKey] = streetMap;
+        // Remove _last before writing to database
+        final streetMapForDb = Map<String, dynamic>.from(streetMap);
+        streetMapForDb.remove('_last');
+
+        // Put back nested maps before write (without _last)
+        streetsMap[streetKey] = streetMapForDb;
         muniMap['streets'] = streetsMap;
         base[muniId] = muniMap;
 
         tx.set(reportsDocRef, base);
       });
 
-      print('Report submitted successfully (transaction)');
+      print('✅ Report submitted successfully (transaction)');
     } catch (e) {
-      print('Error submitting report: $e');
+      print('❌ Error submitting report: $e');
       throw e;
     }
   }

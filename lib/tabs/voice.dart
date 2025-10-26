@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -7,6 +9,7 @@ import '../services/street_data_service.dart';
 import '../services/account_service.dart';
 import 'package:intl/intl.dart';
 import 'package:litter_lens/theme.dart';
+import 'dart:convert';
 
 class VoiceTab extends StatefulWidget {
   const VoiceTab({super.key});
@@ -15,73 +18,148 @@ class VoiceTab extends StatefulWidget {
   VoiceTabState createState() => VoiceTabState();
 }
 
+Future<void> fetchAndCacheFullnessMap() async {
+  final prefs = await SharedPreferences.getInstance();
+
+  // Check if we already have it cached
+  if (prefs.containsKey('fullnessMap')) {
+    print('✅ fullnessMap already cached locally');
+    return;
+  }
+
+  // Fetch from Firestore
+  final doc = await FirebaseFirestore.instance
+      .collection('Keywords')
+      .doc('Fullness')
+      .get();
+
+  final data = doc.data();
+  if (data == null || data['fullnessMap'] == null) {
+    print('⚠️ fullnessMap not found in Firestore');
+    return;
+  }
+
+  final Map<String, String> map = Map<String, String>.from(data['fullnessMap']);
+
+  // Save locally as JSON string
+  await prefs.setString('fullnessMap', jsonEncode(map));
+  print('✅ fullnessMap saved locally');
+}
+
+Future<Map<String, String>> loadKeywordMapOnce([
+  String docId = 'Fullness',
+  String fieldName = 'fullnessMap',
+]) async {
+  final prefs = await SharedPreferences.getInstance();
+
+  // ✅ Check if cached locally (use docId as key)
+  if (prefs.containsKey(docId)) {
+    final jsonString = prefs.getString(docId);
+    print(
+      '📦 Loaded $docId map from local cache — ${jsonString != null ? jsonString.length : 0} bytes',
+    );
+    try {
+      return Map<String, String>.from(json.decode(jsonString!));
+    } catch (e) {
+      print('⚠️ Failed to parse cached $docId: $e — will refetch');
+    }
+  }
+
+  // 🌐 Fetch from Firestore
+  // print('🌐 Fetching $docId map from Firestore...');
+  final docRef = FirebaseFirestore.instance.collection('Keywords').doc(docId);
+  final doc = await docRef.get();
+  // print('🔎 Firestore doc ($docId) exists=${doc.exists} data=${doc.data()}');
+
+  final Map<String, String> result = {};
+  if (doc.exists && doc.data() is Map) {
+    final Map<String, dynamic> data = Map<String, dynamic>.from(
+      doc.data() as Map,
+    );
+    final dynamic raw = data[fieldName];
+    if (raw is Map) {
+      raw.forEach((k, v) => result[k.toString()] = v.toString());
+    } else {
+      print('⚠️ Field $fieldName on $docId is not a Map; value=$raw');
+    }
+  }
+
+  // 💾 Cache as JSON string
+  await prefs.setString(docId, json.encode(result));
+  // print('✅ $docId map cached locally — ${result.length} items');
+  return result;
+}
+
+Future<void> fetchAndCacheKeywordSet(String docId, String fieldName) async {
+  final prefs = await SharedPreferences.getInstance();
+
+  if (prefs.containsKey(docId)) {
+    // print('✅ $docId keywords already cached');
+    return;
+  }
+
+  final doc = await FirebaseFirestore.instance
+      .collection('Keywords')
+      .doc(docId)
+      .get();
+
+  final data = doc.data();
+  if (data == null || data[fieldName] == null) {
+    print('⚠️ $docId keywords not found in Firestore');
+    return;
+  }
+
+  final List<String> list = data[fieldName];
+  await prefs.setStringList(docId, list.map((e) => e.toString()).toList());
+  // print('✅ $docId keywords cached locally');
+}
+
+/// 🧠 Fetches a keyword set once, caches locally for offline use
+Future<Set<String>> loadKeywordSetOnce(String docId, String fieldName) async {
+  final prefs = await SharedPreferences.getInstance();
+
+  // ✅ If local data exists, use it
+  if (prefs.containsKey(docId)) {
+    final list = prefs.getStringList(docId);
+    final count = list?.length ?? 0;
+    // print('📦 Loaded $docId from local cache — $count items');
+    // If cached list is empty, attempt to re-fetch from Firestore
+    if (list != null && list.isNotEmpty) {
+      return list.toSet();
+    }
+    // print('⚠️ Cached $docId is empty; will attempt to fetch from Firestore');
+  }
+
+  // 🌐 Else, fetch once from Firestore
+  // print('🌐 Fetching $docId from Firestore...');
+  final docRef = FirebaseFirestore.instance.collection('Keywords').doc(docId);
+  final doc = await docRef.get();
+  // print('🔎 Firestore doc ($docId) exists=${doc.exists} data=${doc.data()}');
+
+  final List<dynamic> list = (doc.data() is Map)
+      ? (doc.data() as Map)[fieldName] ?? []
+      : [];
+  final Set<String> result = list.map((e) => e.toString()).toSet();
+
+  // 💾 Save locally for offline
+  await prefs.setStringList(docId, result.toList());
+  // print('✅ $docId cached locally — ${result.length} items');
+  return result;
+}
+
 class VoiceTabState extends State<VoiceTab>
     with AutomaticKeepAliveClientMixin<VoiceTab> {
   final SpeechToText _speechToText = SpeechToText();
   final FlutterTts _flutterTts = FlutterTts();
-
   // Confirmation states
   bool _isAwaitingClearConfirmation = false;
-  // submit confirmation removed: we'll auto-verify and submit when inputs are complete
-  // Confirmation keywords
-  final Set<String> confirmWords = {
-    'yes',
-    'confirm',
-    'proceed',
-    'okay',
-    'ok',
-    'submit',
-  };
-
-  final Set<String> cancelWords = {
-    'no',
-    'cancel',
-    'stop',
-    'never mind',
-    'dont',
-  };
-
-  // Trigger keywords
-  final Set<String> submitKeywords = {'submit', 'send', 'confirm', 'done'};
-  final Set<String> clearKeywords = {
-    'clear',
-    'reset',
-    'delete',
-    'erase',
-    'start over',
-  };
-
-  // Fullness mapping: map common phrases (including Filipino translations) to canonical English values
-  final Map<String, String> fullnessMap = {
-    // canonical -> keys map (we'll reference by keys)
-    'overflowing': 'Overflowing',
-    'umaapaw': 'Overflowing',
-    'apaw': 'Overflowing',
-    'sobrang puno': 'Overflowing',
-
-    'full': 'Full',
-    'puno': 'Full',
-
-    'half full': 'Half Full',
-    'kalahating puno': 'Half Full',
-    'medyo puno': 'Half Full',
-
-    'almost empty': 'Almost Empty',
-    'kaunti laman': 'Almost Empty',
-    'malapit mapuno': 'Almost Empty',
-
-    'empty': 'Empty',
-    'walang laman': 'Empty',
-  };
-
-  // Trigger keywords
-  final Set<String> streetTriggers = {'street', 'kalye', 'daan'};
 
   // Database variables
   String? _fullnessLevel;
   String? _streetName;
   DateTime? _recordedDate;
   bool _isSubmitting = false;
+  bool _isSyncing = false;
 
   // UI state variables
   bool _speechEnabled = false;
@@ -92,24 +170,89 @@ class VoiceTabState extends State<VoiceTab>
   @override
   bool get wantKeepAlive => true;
 
+  late Set<String> confirmWords;
+  late Set<String> cancelWords;
+  late Set<String> submitKeywords;
+  late Set<String> clearKeywords;
+  late Set<String> streetTriggers;
+  late Map<String, String> fullnessMap;
+
   @override
   void initState() {
     super.initState();
 
-    // Listen for internet connection and sync automatically
-    Connectivity().onConnectivityChanged.listen((
-      List<ConnectivityResult> results,
-    ) {
-      if (results.contains(ConnectivityResult.mobile) ||
-          results.contains(ConnectivityResult.wifi)) {
-        _syncPendingSubmissions();
+    // Listen for connectivity changes and sync once when going online.
+    Connectivity().onConnectivityChanged.listen((result) async {
+      // Only trigger on online states (wifi or mobile). Debounce shortly
+      // to allow the connection to stabilize and avoid duplicate syncs.
+      if (result == ConnectivityResult.mobile ||
+          result == ConnectivityResult.wifi) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        // Re-check current connectivity to avoid redundant calls
+        final current = await Connectivity().checkConnectivity();
+        if (current == ConnectivityResult.mobile ||
+            current == ConnectivityResult.wifi) {
+          _syncPendingSubmissions();
+        }
       }
     });
 
-    // ✅ Initialize speech recognizer so it can start listening
+    // Check connectivity on startup and sync if online
+    _checkInitialConnectivityAndSync();
+
     _flutterTts.setLanguage("en-PH");
     _flutterTts.setSpeechRate(0.5);
-    _initSpeech();
+
+    _loadAllKeywords().then((_) {
+      _initSpeech();
+    });
+  }
+
+  Future<void> _checkInitialConnectivityAndSync() async {
+    try {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity == ConnectivityResult.mobile ||
+          connectivity == ConnectivityResult.wifi) {
+        // Small delay to ensure services are ready
+        await Future.delayed(const Duration(milliseconds: 1000));
+        _syncPendingSubmissions();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error checking initial connectivity: $e');
+    }
+  }
+
+  Future<void> _loadAllKeywords() async {
+    // Use the canonical document IDs and field names stored in Firestore
+    confirmWords = await loadKeywordSetOnce('Confirm', 'confirmWords');
+    cancelWords = await loadKeywordSetOnce('Cancel', 'cancelWords');
+    submitKeywords = await loadKeywordSetOnce('Submit', 'submitKeywords');
+    clearKeywords = await loadKeywordSetOnce('Clear', 'clearKeywords');
+    // Try multiple possible document IDs for street triggers to be robust
+    streetTriggers = await loadKeywordSetOnce(
+      'TriggersStreet',
+      'streetTriggers',
+    );
+    // If still empty, fall back to a reasonable default set so voice triggers work offline
+    if (streetTriggers.isEmpty) {
+      final defaults = <String>{'street', 'kalye'};
+      streetTriggers = defaults;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('TriggetStreet', defaults.toList());
+        print('ℹ️ Saved default street triggers to prefs under TriggetStreet');
+      } catch (e) {
+        print('⚠️ Failed to save default street triggers to prefs: $e');
+      }
+    }
+    fullnessMap = await loadKeywordMapOnce('Fullness', 'fullnessMap');
+
+    // print('✅ All keyword sets loaded');
+    // print('Confirm: $confirmWords');
+    // print('Cancel: $cancelWords');
+    // print('Submit: $submitKeywords');
+    // print('Clear: $clearKeywords');
+    // print('Street Triggers: $streetTriggers');
   }
 
   @override
@@ -189,7 +332,13 @@ class VoiceTabState extends State<VoiceTab>
   // to avoid calling setState on an unmounted widget.
 
   Future<void> _processRecognizedWords(String words) async {
-    if (words.isEmpty) return;
+    if (confirmWords.isEmpty ||
+        cancelWords.isEmpty ||
+        clearKeywords.isEmpty ||
+        submitKeywords.isEmpty) {
+      debugPrint('⚠️ Keywords not loaded yet, skipping processing.');
+      return;
+    }
 
     setState(() => _lastWords = words);
     String lowerWords = words.toLowerCase();
@@ -508,7 +657,12 @@ class VoiceTabState extends State<VoiceTab>
       final keys = fullnessMap.keys.toList()
         ..sort((a, b) => b.length.compareTo(a.length));
       for (final key in keys) {
-        if (text.contains(key)) {
+        // Use word-boundary safe match so we don't match substrings inside other words
+        final pattern = RegExp(
+          r"(^|\b)" + RegExp.escape(key) + r"(\b|$)",
+          caseSensitive: false,
+        );
+        if (pattern.hasMatch(text)) {
           final canonical = fullnessMap[key]!;
           // Update fullness even if same value is detected again; this refreshes recordedDate
           setState(() {
@@ -516,6 +670,7 @@ class VoiceTabState extends State<VoiceTab>
             _recordedDate = DateTime.now();
             _statusMessage = 'Fullness updated: $_fullnessLevel';
           });
+          debugPrint("🔎 Fullness match: key='$key' -> value='$canonical'");
           _printStoredData();
           return true;
         }
@@ -547,6 +702,28 @@ class VoiceTabState extends State<VoiceTab>
   }
 
   Future<void> _syncPendingSubmissions() async {
+    // Prevent concurrent syncs
+    if (_isSyncing) {
+      debugPrint('ℹ️ Sync already in progress; skipping duplicate call.');
+      return;
+    }
+
+    // Also avoid repeated rapid-fire sync attempts by checking last attempt time
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastMs = prefs.getInt('last_sync_attempt_ms') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const coolDownMs = 5000; // 5 seconds
+      if (now - lastMs < coolDownMs) {
+        debugPrint('ℹ️ Recent sync attempted ${now - lastMs}ms ago; skipping.');
+        return;
+      }
+      await prefs.setInt('last_sync_attempt_ms', now);
+    } catch (e) {
+      debugPrint('⚠️ Could not read/write last_sync_attempt_ms: $e');
+    }
+
+    _isSyncing = true;
     try {
       final submissions = await LocalFileHelper.readAllSubmissions();
       if (submissions.isEmpty) {
@@ -594,21 +771,27 @@ class VoiceTabState extends State<VoiceTab>
       if (failed.isEmpty) {
         await LocalFileHelper.clearFile();
         debugPrint("✅ All local submissions synced and file cleared.");
-        await _flutterTts.speak("All saved data uploaded successfully.");
-        setState(() => _statusMessage = "All local data synced.");
+        try {
+          await _flutterTts.speak("All saved data uploaded successfully.");
+        } catch (e) {}
+        if (mounted) setState(() => _statusMessage = "All local data synced.");
       } else {
         // Overwrite local file with only failed submissions
         await LocalFileHelper.writeAllSubmissions(failed);
         debugPrint(
           "⚠️ Some submissions failed. ${failed.length} kept for retry.",
         );
-        setState(
-          () => _statusMessage = "Some submissions failed, will retry later.",
-        );
+        if (mounted)
+          setState(
+            () => _statusMessage = "Some submissions failed, will retry later.",
+          );
       }
     } catch (e) {
       debugPrint("❌ Sync error: $e");
-      setState(() => _statusMessage = "Sync error, will retry later.");
+      if (mounted)
+        setState(() => _statusMessage = "Sync error, will retry later.");
+    } finally {
+      _isSyncing = false;
     }
   }
 

@@ -14,6 +14,8 @@ Future<void> main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // (debug block removed) Keywords loading now handled lazily by VoiceTab
+
   try {
     cameras = await availableCameras();
   } catch (e) {

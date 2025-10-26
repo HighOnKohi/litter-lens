@@ -17,7 +17,12 @@ class LocalFileHelper {
     if (await file.exists()) {
       final content = await file.readAsString();
       if (content.isNotEmpty) {
-        existing = jsonDecode(content);
+        try {
+          existing = jsonDecode(content);
+        } catch (e) {
+          // If file content is corrupted or not JSON, start fresh
+          existing = [];
+        }
       }
     }
 
@@ -41,6 +46,32 @@ class LocalFileHelper {
       normalized['recordedDate'] = DateFormat(
         'yyyy-MM-dd',
       ).format(DateTime.now());
+    }
+
+    // Consider a submission duplicate if streetName + fullnessLevel + recordedDate all match.
+    final normalizedStreet = (normalized['streetName'] ?? '')
+        .toString()
+        .toUpperCase();
+    final normalizedFullness = (normalized['fullnessLevel'] ?? '')
+        .toString()
+        .toUpperCase();
+    final normalizedDate = (normalized['recordedDate'] ?? '').toString();
+
+    bool duplicateExists = existing.any((item) {
+      if (item is Map) {
+        final s = (item['streetName'] ?? '').toString().toUpperCase();
+        final f = (item['fullnessLevel'] ?? '').toString().toUpperCase();
+        final d = (item['recordedDate'] ?? '').toString();
+        return s == normalizedStreet &&
+            f == normalizedFullness &&
+            d == normalizedDate;
+      }
+      return false;
+    });
+
+    if (duplicateExists) {
+      // Skip adding duplicate — preserves single local save per submission
+      return;
     }
 
     existing.add(normalized);
@@ -72,5 +103,27 @@ class LocalFileHelper {
   ) async {
     final file = await _getFile();
     await file.writeAsString(jsonEncode(submissions));
+  }
+
+  static Future<List<dynamic>> readLocalData() async {
+    final file = await _getFile();
+    if (await file.exists()) {
+      final content = await file.readAsString();
+      if (content.isNotEmpty) {
+        try {
+          return jsonDecode(content);
+        } catch (e) {
+          return [];
+        }
+      }
+    }
+    return [];
+  }
+
+  static Future<void> clearLocalData() async {
+    final file = await _getFile();
+    if (await file.exists()) {
+      await file.writeAsString('[]'); // Reset to empty array
+    }
   }
 }

@@ -590,41 +590,43 @@ class VoiceTabState extends State<VoiceTab>
               _streetName = null;
               _recordedDate = null;
               _statusMessage = 'Street not found in database';
+              _lastWords = ''; // <-- clear transcript to avoid re-processing
             });
             try {
               await _flutterTts.speak(
-                "Street name not recognized. Please try again with a valid street name.",
+                "Street not found. Please say the street name again.",
               );
             } catch (e) {}
+            return;
+          } else {
+            // exact match found
+            setState(() {
+              _streetName = exact.name;
+              _recordedDate = DateTime.now();
+              _statusMessage = 'Street updated: $_streetName';
+              _lastWords =
+                  ''; // <-- clear transcript after accepting street name
+            });
             _printStoredData();
             return;
           }
-          // Use exact match
-          setState(() {
-            _streetName = exact.name;
-            _recordedDate = DateTime.now();
-            _statusMessage = 'Street updated: $_streetName';
-          });
-          _printStoredData();
-          return;
         }
 
-        // Get the best match (first in the sorted list)
+        // If fuzzy matches are available, pick bestMatch logic as before...
         StreetMatch bestMatch = matches.first;
 
         if (bestMatch.score <= 2) {
-          // Very close match
           if (_streetName != bestMatch.street.name) {
             setState(() {
               _streetName = bestMatch.street.name;
               _recordedDate = DateTime.now();
               _statusMessage = 'Street updated: $_streetName';
+              _lastWords =
+                  ''; // <-- clear transcript after accepting street name
             });
             _printStoredData();
           }
         } else if (bestMatch.score <= 3) {
-          // Possible match, but needs confirmation
-          // Ask user to repeat exact name; clear previous name to avoid stale data
           try {
             await _flutterTts.speak(
               "Did you mean ${bestMatch.street.name}? Please say the exact street name.",
@@ -634,17 +636,20 @@ class VoiceTabState extends State<VoiceTab>
             _statusMessage = 'Did you mean: ${bestMatch.street.name}?';
             _streetName = null;
             _recordedDate = null;
+            _lastWords =
+                ''; // <-- clear transcript while asking for confirmation
           });
         } else {
           try {
             await _flutterTts.speak(
-              "Street name not recognized. Please try again with a valid street name.",
+              "I couldn't confidently find that street. Please say the street name again.",
             );
           } catch (e) {}
           setState(() {
-            _statusMessage = 'Street not found in database';
+            _statusMessage = 'Street ambiguous';
             _streetName = null;
             _recordedDate = null;
+            _lastWords = ''; // <-- clear transcript
           });
         }
       }

@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import './services/street_data_service.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -23,7 +24,7 @@ Future<void> main() async {
     // long retries or crashes. Fall back to no cameras so the app can run.
     cameras = <CameraDescription>[];
   }
-
+  StreetDataService.startAutoSync();
   runApp(const MyApp());
 }
 

@@ -1,5 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'local_file_helper.dart';
+import 'account_service.dart';
+import 'package:flutter/foundation.dart';
 
 // Report data structure
 class Report {
@@ -56,6 +60,8 @@ class Street {
 }
 
 class StreetDataService {
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static bool _isSyncing = false;
   // Convert text to metaphone code for phonetic matching
   static String _getMetaphoneCode(String text) {
     // Simple metaphone implementation
@@ -249,6 +255,79 @@ class StreetDataService {
       print('❌ Error submitting report: $e');
       throw e;
     }
+  }
+
+  // ✅ Sync local submissions to Firestore
+  static Future<void> syncLocalToFirestore() async {
+    if (_isSyncing) return;
+    _isSyncing = true;
+
+    try {
+      final localData = await LocalFileHelper.readLocalData();
+      if (localData.isEmpty) {
+        if (kDebugMode) print('📂 No local submissions to sync.');
+        _isSyncing = false;
+        return;
+      }
+
+      int successCount = 0;
+
+      for (final entry in localData) {
+        try {
+          // 🔍 Extract expected fields from local file
+          final subdivisionId =
+              entry['subdivisionId'] ?? entry['subdivisionID'];
+          final streetId = entry['streetName'] ?? entry['streetId'];
+          final fillRate = entry['fullnessLevel'] ?? entry['fillRate'];
+
+          if (subdivisionId == null || streetId == null || fillRate == null) {
+            if (kDebugMode) print('⚠️ Skipping invalid local entry: $entry');
+            continue;
+          }
+
+          // ✅ Call your existing Firestore function
+          await StreetDataService.submitReport(
+            subdivisionId.toString(),
+            streetId.toString(),
+            fillRate.toString(),
+          );
+
+          successCount++;
+        } catch (e) {
+          if (kDebugMode) print('⚠️ Failed to sync one entry: $e');
+        }
+      }
+
+      if (successCount > 0) {
+        await LocalFileHelper.clearLocalData();
+        if (kDebugMode)
+          print('✅ Synced $successCount entries, local data cleared.');
+      } else {
+        if (kDebugMode) print('⚠️ No entries synced (all invalid or failed).');
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ syncLocalToFirestore error: $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  // ✅ Auto-sync when connectivity changes
+  static void startAutoSync() {
+    Connectivity().onConnectivityChanged.listen((
+      List<ConnectivityResult> results,
+    ) async {
+      final result = results.isNotEmpty
+          ? results.first
+          : ConnectivityResult.none;
+      if (result == ConnectivityResult.mobile ||
+          result == ConnectivityResult.wifi) {
+        if (kDebugMode) print('📶 Device is online, starting sync...');
+        await syncLocalToFirestore();
+      } else {
+        if (kDebugMode) print('🔌 Device is offline, sync paused.');
+      }
+    });
   }
 
   // Get reports for a specific street

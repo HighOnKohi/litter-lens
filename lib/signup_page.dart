@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:litter_lens/theme.dart';
 import 'home_page.dart';
-// import 'package:firebase_auth/firebase_auth.dart';
+import 'resident/resident_home.dart';
+import 'collector/collector_home.dart';
+import 'services/user_service.dart';
+import 'services/account_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -13,12 +18,15 @@ class SignupPage extends StatefulWidget {
 }
 
 class _SignupPageState extends State<SignupPage> {
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
   bool _loading = false;
+
+  String _selectedRole = 'resident';
   List<Map<String, String>> _subdivisionDocs = [];
   String? _selectedSubdivisionId;
-  String? _selectedCollection = 'Resident_Accounts';
 
   @override
   void initState() {
@@ -26,11 +34,18 @@ class _SignupPageState extends State<SignupPage> {
     _loadSubdivisions();
   }
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSubdivisions() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('Subdivisions')
-          .get();
+      final snap =
+      await FirebaseFirestore.instance.collection('Subdivisions').get();
       final list = <Map<String, String>>[];
       for (final d in snap.docs) {
         final data = d.data();
@@ -44,104 +59,66 @@ class _SignupPageState extends State<SignupPage> {
         }
       });
     } catch (_) {
-      // ignore
     }
   }
 
   Future<void> _signUp() async {
+    final email = _emailController.text.trim();
     final username = _usernameController.text.trim();
     final pw = _passwordController.text;
+    final role = _selectedRole; // 'resident' or 'collector'
+    final subdivisionId = _selectedSubdivisionId?.trim() ?? '';
 
-    if (username.isEmpty || pw.isEmpty) {
+    if (email.isEmpty || username.isEmpty || pw.isEmpty) {
       _showError('All fields are required.');
       return;
     }
-
-    if (_selectedSubdivisionId == null || _selectedSubdivisionId!.isEmpty) {
+    if (!email.contains('@')) {
+      _showError('Enter a valid email.');
+      return;
+    }
+    if (subdivisionId.isEmpty) {
       _showError('Please select a subdivision.');
       return;
     }
 
     setState(() => _loading = true);
     try {
-      final collectionsToCheck = [
-        'users',
-        'Resident_Accounts',
-        'Test_Accounts',
-        'Trash_Collector_Accounts',
-      ];
-      for (final col in collectionsToCheck) {
-        try {
-          if (col == 'users') {
-            final existing = await FirebaseFirestore.instance
-                .collection('users')
-                .where('username_lc', isEqualTo: username.toLowerCase())
-                .limit(1)
-                .get();
-            if (existing.docs.isNotEmpty) {
-              _showError('Username already in use.');
-              setState(() => _loading = false);
-              return;
-            }
-          } else {
-            final snapshot = await FirebaseFirestore.instance
-                .collection(col)
-                .get();
-            for (final doc in snapshot.docs) {
-              final data = doc.data();
-              if (data.containsKey(username)) {
-                _showError('Username already in use.');
-                setState(() => _loading = false);
-                return;
-              }
-              for (final entry in data.entries) {
-                final val = entry.value;
-                if (val is Map<String, dynamic>) {
-                  final nested = (val['Username'] ?? '').toString();
-                  if (nested.toLowerCase() == username.toLowerCase()) {
-                    _showError('Username already in use.');
-                    setState(() => _loading = false);
-                    return;
-                  }
-                }
-              }
-            }
-          }
-        } catch (_) {}
+      if (await UserService.isUsernameTaken(username)) {
+        _showError('Username already in use.');
+        return;
       }
 
-      final subdivisionId = _selectedSubdivisionId ?? 'default';
-      final usernameKey = username;
-      final accountEntry = {
-        'Username': username,
-        'Password': pw,
-        'SubdivisionID': subdivisionId,
-      };
+      final cred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: pw);
+      final uid = cred.user!.uid;
 
-      final targetCollection = _selectedCollection ?? 'Resident_Accounts';
-      final docRef = FirebaseFirestore.instance
-          .collection(targetCollection)
-          .doc(subdivisionId);
+      await UserService.upsertUserProfile(
+        uid: uid,
+        email: email,
+        username: username,
+        role: role,
+        subdivisionId: subdivisionId,
+      );
 
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final snap = await tx.get(docRef);
-        Map<String, dynamic> base = {};
-        if (snap.exists && snap.data() != null) {
-          base = Map<String, dynamic>.from(snap.data() as Map);
-        }
-        if (base.containsKey(usernameKey)) {
-          throw Exception('Username already exists');
-        }
-        base[usernameKey] = accountEntry;
-        tx.set(docRef, base);
-      });
+      await AccountService.cacheForUid(uid, subdivisionId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_role', role);
 
       if (!mounted) return;
+      Widget dest;
+      if (role == 'collector') {
+        dest = const CollectorHome();
+      } else {
+        dest = const ResidentHome();
+      }
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
+        MaterialPageRoute(builder: (_) => dest),
+            (_) => false,
       );
+    } on FirebaseAuthException catch (e) {
+      _showError(e.message ?? e.code);
     } catch (_) {
       _showError('Sign up failed. Please try again.');
     } finally {
@@ -150,17 +127,17 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _showSubdivisionPicker(BuildContext ctx) async {
+  Future<void> _pickSubdivision() async {
     if (_subdivisionDocs.isEmpty) {
       _showError('No subdivisions available.');
       return;
     }
-
     final choice = await showDialog<String?>(
-      context: ctx,
+      context: context,
       builder: (dctx) => SimpleDialog(
         title: const Text('Select Subdivision'),
         children: _subdivisionDocs.map((m) {
@@ -173,11 +150,8 @@ class _SignupPageState extends State<SignupPage> {
         }).toList(),
       ),
     );
-
     if (choice != null) {
-      setState(() {
-        _selectedSubdivisionId = choice;
-      });
+      setState(() => _selectedSubdivisionId = choice);
     }
   }
 
@@ -224,19 +198,17 @@ class _SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Account type selector
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         ChoiceChip(
                           label: const Text('Resident'),
-                          selected: _selectedCollection == 'Resident_Accounts',
-                          selectedColor: AppColors.primaryGreen.withOpacity(
-                            0.8,
-                          ),
+                          selected: _selectedRole == 'resident',
+                          selectedColor:
+                          AppColors.primaryGreen.withOpacity(0.8),
                           backgroundColor: Colors.white,
                           labelStyle: TextStyle(
-                            color: _selectedCollection == 'Resident_Accounts'
+                            color: _selectedRole == 'resident'
                                 ? Colors.white
                                 : AppColors.primaryGreen,
                             fontWeight: FontWeight.bold,
@@ -248,24 +220,18 @@ class _SignupPageState extends State<SignupPage> {
                             ),
                           ),
                           onSelected: (v) {
-                            setState(() {
-                              _selectedCollection = 'Resident_Accounts';
-                            });
+                            if (v) setState(() => _selectedRole = 'resident');
                           },
                         ),
                         const SizedBox(width: 12),
                         ChoiceChip(
                           label: const Text('Trash Collector'),
-                          selected:
-                              _selectedCollection == 'Trash_Collector_Accounts',
-                          selectedColor: AppColors.primaryGreen.withOpacity(
-                            0.8,
-                          ),
+                          selected: _selectedRole == 'collector',
+                          selectedColor:
+                          AppColors.primaryGreen.withOpacity(0.8),
                           backgroundColor: Colors.white,
                           labelStyle: TextStyle(
-                            color:
-                                _selectedCollection ==
-                                    'Trash_Collector_Accounts'
+                            color: _selectedRole == 'collector'
                                 ? Colors.white
                                 : AppColors.primaryGreen,
                             fontWeight: FontWeight.bold,
@@ -277,16 +243,13 @@ class _SignupPageState extends State<SignupPage> {
                             ),
                           ),
                           onSelected: (v) {
-                            setState(() {
-                              _selectedCollection = 'Trash_Collector_Accounts';
-                            });
+                            if (v) setState(() => _selectedRole = 'collector');
                           },
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
 
-                    // Subdivision picker
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primaryGreen,
@@ -299,9 +262,7 @@ class _SignupPageState extends State<SignupPage> {
                           vertical: 12,
                         ),
                       ),
-                      onPressed: () async {
-                        await _showSubdivisionPicker(context);
-                      },
+                      onPressed: _pickSubdivision,
                       child: Text(
                         _selectedSubdivisionId == null
                             ? 'Select Subdivision'
@@ -311,7 +272,13 @@ class _SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Username input
+                    InputField(
+                      inputController: _emailController,
+                      obscuring: false,
+                      label: 'Email',
+                    ),
+                    const SizedBox(height: 16),
+
                     InputField(
                       inputController: _usernameController,
                       obscuring: false,
@@ -319,7 +286,6 @@ class _SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Password input
                     InputField(
                       inputController: _passwordController,
                       obscuring: true,

@@ -44,10 +44,7 @@ class _PostItemState extends State<PostItem> {
     if (_liking) return;
     setState(() => _liking = true);
     try {
-      await PostService.togglePostLike(
-        postId: widget.postId,
-        userId: widget.currentUserId,
-      );
+      await PostService.toggleLike(widget.postId, widget.currentUserId);
     } finally {
       if (mounted) setState(() => _liking = false);
     }
@@ -58,7 +55,6 @@ class _PostItemState extends State<PostItem> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (_) => CommentsSheet(
         postId: widget.postId,
         currentUserId: widget.currentUserId,
@@ -81,7 +77,7 @@ class _PostItemState extends State<PostItem> {
         children: [
           if (hasTitle || hasDesc)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -89,13 +85,13 @@ class _PostItemState extends State<PostItem> {
                     Text(
                       widget.title,
                       style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  if (hasTitle && hasDesc) const SizedBox(height: 6),
-                  if (hasDesc)
-                    Text(
-                      widget.description,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
+                  if (hasDesc) ...[
+                    if (hasTitle) const SizedBox(height: 4),
+                    Text(widget.description),
+                  ],
                 ],
               ),
             ),
@@ -115,11 +111,25 @@ class _PostItemState extends State<PostItem> {
             ),
           ],
           const Divider(height: 1),
-          PostActionsBar(
-            onLike: _liking ? null : _toggleLike,
-            onComment: _openComments,
-            onShare: _sharing ? null : _share,
-            sharing: _sharing,
+
+          StreamBuilder<Map<String, dynamic>>(
+            stream: PostService.postEngagementStream(widget.postId),
+            builder: (context, engSnap) {
+              final eng = engSnap.data ?? const <String, dynamic>{};
+              final likedBy =
+              List<String>.from(eng['likedBy'] ?? const <String>[]);
+              final isLiked = likedBy.contains(widget.currentUserId);
+              final likeCount = (eng['likeCount'] ?? likedBy.length) as int;
+
+              return PostActionsBar(
+                onLike: _liking ? null : _toggleLike,
+                onComment: _openComments,
+                onShare: _sharing ? null : _share,
+                sharing: _sharing,
+                liked: isLiked,
+                likeCount: likeCount,
+              );
+            },
           ),
         ],
       ),

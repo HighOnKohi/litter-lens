@@ -1,11 +1,13 @@
-import 'dart:typed_data';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+
 import 'package:litter_lens/theme.dart';
-import '../services/user_service.dart';
-import '../services/account_service.dart';
+import 'package:litter_lens/services/user_service.dart';
 
 class AccountTab extends StatefulWidget {
   const AccountTab({super.key});
@@ -15,159 +17,312 @@ class AccountTab extends StatefulWidget {
 }
 
 class _AccountTabState extends State<AccountTab> {
-  final _newUsernameCtrl = TextEditingController();
-  final _currentPwCtrl = TextEditingController();
-  final _newPwCtrl = TextEditingController();
-  final _confirmPwCtrl = TextEditingController();
+  final TextEditingController _emailCtl = TextEditingController();
+  final TextEditingController _passwordCtl = TextEditingController(); // current
 
-  bool _loading = false;
-  bool _avatarUploading = false;
-  String _currentUsername = '';
-  String _photoUrl = '';
-  Uint8List? _avatarPreview;
+  final TextEditingController _usernameCtl = TextEditingController();
+  String? _originalUsername;
+  bool _savingUsername = false;
+
+  final TextEditingController _newPasswordCtl = TextEditingController();
+  final TextEditingController _confirmPasswordCtl = TextEditingController();
+  bool _savingPassword = false;
+
+  String? _profilePhotoUrl;
+  bool _savingPhoto = false;
+
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    final u = FirebaseAuth.instance.currentUser;
+    _emailCtl.text = (u?.email ?? '').trim();
     _loadProfile();
   }
 
   @override
   void dispose() {
-    _newUsernameCtrl.dispose();
-    _currentPwCtrl.dispose();
-    _newPwCtrl.dispose();
-    _confirmPwCtrl.dispose();
+    _emailCtl.dispose();
+    _passwordCtl.dispose();
+    _usernameCtl.dispose();
+    _newPasswordCtl.dispose();
+    _confirmPasswordCtl.dispose();
     super.dispose();
   }
 
   Future<void> _loadProfile() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        // If there's no FirebaseAuth user (map-shaped login), try to load
-        // profile via cached synthetic uid or by scanning account collections.
-        final cached = AccountService.cachedUid;
-        if (cached != null && cached.contains(':')) {
-          final parts = cached.split(':');
-          if (parts.length >= 3) {
-            final col = parts[0];
-            final docId = parts[1];
-            final key = parts.sublist(2).join(':');
-            try {
-              final doc = await FirebaseFirestore.instance
-                  .collection(col)
-                  .doc(docId)
-                  .get();
-              if (doc.exists) {
-                final map = doc.data() ?? {};
-                final val = map[key];
-                if (val is Map<String, dynamic>) {
-                  if (!mounted) return;
-                  setState(() {
-                    _currentUsername = (val['Username'] as String?) ?? key;
-                    _photoUrl = (val['photoUrl'] as String?) ?? '';
-                  });
-                  return;
-                }
-              }
-            } catch (_) {}
-          }
-        }
+      if (user == null) return;
 
-        // try scanning the map-shaped collections for a matching entry
-        final cachedUid = AccountService.cachedUid;
-        if (cachedUid != null && !cachedUid.contains(':')) {
-          // might be a plain uid stored from users collection
-          try {
-            final snap = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(cachedUid)
-                .get();
-            final data = snap.data() ?? {};
-            if (snap.exists && data.isNotEmpty) {
-              if (!mounted) return;
-              setState(() {
-                _currentUsername = (data['Username'] as String?) ?? '';
-                _photoUrl = (data['photoUrl'] as String?) ?? '';
-              });
-              return;
-            }
-          } catch (_) {}
-        }
+      String name = (user.displayName ?? '').trim();
+      String photo = (user.photoURL ?? '').trim();
 
-        // fallback: try to find by username stored in cache or last-known username
-        // Nothing more to do if not found.
-        return;
-      }
-      // First try the canonical users collection
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      final data = snap.data() ?? {};
-      if (snap.exists && data.isNotEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _currentUsername =
-              (data['Username'] as String?) ?? (user.displayName ?? '');
-          _photoUrl = (data['photoUrl'] as String?) ?? (user.photoURL ?? '');
-        });
-        return;
-      }
+      try {
+        final snap =
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final u = snap.data() ?? const <String, dynamic>{};
+        final candidates = [
+          (u['displayName'] ?? '').toString(),
+          (u['name'] ?? '').toString(),
+          (u['username'] ?? '').toString(),
+          (u['Username'] ?? '').toString(),
+        ].map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+        if (candidates.isNotEmpty) name = candidates.first;
 
-      // If not found in users, try to resolve via cached synthetic uid
-      final cached = AccountService.cachedUid;
-      if (cached != null && cached.contains(':')) {
-        // synthetic format: Collection:DocId:Key
-        final parts = cached.split(':');
-        if (parts.length >= 3) {
-          final col = parts[0];
-          final docId = parts[1];
-          final key = parts.sublist(2).join(':');
-          try {
-            final doc = await FirebaseFirestore.instance
-                .collection(col)
-                .doc(docId)
-                .get();
-            if (doc.exists) {
-              final map = doc.data() ?? {};
-              final val = map[key];
-              if (val is Map<String, dynamic>) {
-                if (!mounted) return;
-                setState(() {
-                  _currentUsername = (val['Username'] as String?) ?? key;
-                  _photoUrl = (val['photoUrl'] as String?) ?? '';
-                });
-                return;
-              }
-            }
-          } catch (_) {}
-        }
-      }
+        final p = (u['photoUrl'] ?? '').toString().trim();
+        if (photo.isEmpty && p.isNotEmpty) photo = p;
+      } catch (_) {}
 
-      // Final fallback: scan known account collections for an entry matching
-      // the Firebase displayName or email-derived username.
-      final usernameToFind = (user.displayName ?? '').isNotEmpty
-          ? user.displayName!
-          : (user.email ?? '');
-      if (usernameToFind.isNotEmpty) {
-        try {
-          final found = await AccountService.findMapAccountByUsername(
-            usernameToFind,
-          );
-          if (found != null) {
-            if (!mounted) return;
-            setState(() {
-              _currentUsername = usernameToFind;
-              _photoUrl = '';
-            });
-            return;
-          }
-        } catch (_) {}
-      }
+      if (!mounted) return;
+      setState(() {
+        _originalUsername = name.isEmpty ? null : name;
+        _usernameCtl.text = name;
+        _profilePhotoUrl = photo.isEmpty ? null : photo;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _reauthWithPassword(String password) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw StateError('Not signed in');
+    final email = user.email;
+    if (email == null || email.isEmpty) {
+      throw StateError('Current email is missing on account');
+    }
+    final cred = EmailAuthProvider.credential(email: email, password: password);
+    await user.reauthenticateWithCredential(cred);
+  }
+
+  Future<void> _updateAuthEmail(String newEmail) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw StateError('Not signed in');
+
+    final apiKey = Firebase.app().options.apiKey;
+    if (apiKey.isEmpty) {
+      throw StateError('Firebase apiKey is empty');
+    }
+
+    final idToken = await user.getIdToken();
+    final uri = Uri.parse(
+      'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey',
+    );
+    final resp = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'idToken': idToken,
+        'email': newEmail,
+        'returnSecureToken': true,
+      }),
+    );
+
+    if (resp.statusCode != 200) {
+      String msg = 'Email update failed';
+      try {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        msg = (body['error']?['message'] ?? msg).toString();
+      } catch (_) {}
+      throw FirebaseAuthException(code: 'email-update-failed', message: msg);
+    }
+
+    await user.reload();
+  }
+
+  Future<void> _mirrorEmailToFirestore(String uid, String newEmail) async {
+    await UserService.usersCol.doc(uid).set(
+      {
+        'email': newEmail,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    final profile = await UserService.getUserProfile(uid);
+    final role = (profile?['role'] ?? 'resident').toString();
+    final mirrorCol =
+    role == 'collector' ? UserService.collectorsCol : UserService.residentsCol;
+    await mirrorCol.doc(uid).set(
+      {
+        'email': newEmail,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> _changeEmail() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Not signed in');
+      return;
+    }
+
+    final currentEmail = (user.email ?? '').trim();
+    final newEmail = _emailCtl.text.trim();
+    final password = _passwordCtl.text;
+
+    if (newEmail.isEmpty || !newEmail.contains('@')) {
+      _toast('Enter a valid email');
+      return;
+    }
+    if (newEmail == currentEmail) {
+      _toast('Email unchanged');
+      return;
+    }
+    if (password.isEmpty) {
+      _toast('Enter your current password');
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await _reauthWithPassword(password);
+      await _updateAuthEmail(newEmail);
+      await _mirrorEmailToFirestore(user.uid, newEmail);
+
+      _passwordCtl.clear();
+      _toast('Email updated');
+    } on FirebaseAuthException catch (e) {
+      _toast(e.message ?? e.code);
     } catch (_) {
-      _toast('Failed to load profile.');
+      _toast('Failed to update email');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _changeUsername() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Not signed in');
+      return;
+    }
+
+    final newUsername = _usernameCtl.text.trim();
+    if (newUsername.isEmpty || newUsername.length < 3) {
+      _toast('Enter a valid username');
+      return;
+    }
+
+    final sameAsBefore = (_originalUsername ?? '').toLowerCase() ==
+        newUsername.toLowerCase();
+    if (!sameAsBefore) {
+      final taken = await UserService.isUsernameTaken(newUsername);
+      if (taken) {
+        _toast('Username is already taken');
+        return;
+      }
+    }
+
+    setState(() => _savingUsername = true);
+    try {
+      await user.updateDisplayName(newUsername);
+
+      await UserService.usersCol.doc(user.uid).set(
+        {
+          'username': newUsername,
+          'Username': newUsername,
+          'username_lc': newUsername.toLowerCase(),
+          'displayName': newUsername,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      final profile = await UserService.getUserProfile(user.uid);
+      final role = (profile?['role'] ?? 'resident').toString();
+      final mirrorCol =
+      role == 'collector' ? UserService.collectorsCol : UserService.residentsCol;
+      await mirrorCol.doc(user.uid).set(
+        {
+          'username': newUsername,
+          'Username': newUsername,
+          'username_lc': newUsername.toLowerCase(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      setState(() => _originalUsername = newUsername);
+      _toast('Username updated');
+    } catch (_) {
+      _toast('Failed to update username');
+    } finally {
+      if (mounted) setState(() => _savingUsername = false);
+    }
+  }
+
+  Future<void> _changePassword() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Not signed in');
+      return;
+    }
+
+    final currentPassword = _passwordCtl.text;
+    final newPassword = _newPasswordCtl.text;
+    final confirm = _confirmPasswordCtl.text;
+
+    if (newPassword.isEmpty || newPassword.length < 6) {
+      _toast('New password must be at least 6 characters');
+      return;
+    }
+    if (newPassword != confirm) {
+      _toast('Passwords do not match');
+      return;
+    }
+    if (currentPassword.isEmpty) {
+      _toast('Enter your current password');
+      return;
+    }
+
+    setState(() => _savingPassword = true);
+    try {
+      await _reauthWithPassword(currentPassword);
+      await user.updatePassword(newPassword);
+      _newPasswordCtl.clear();
+      _confirmPasswordCtl.clear();
+      _toast('Password updated');
+    } on FirebaseAuthException catch (e) {
+      _toast(e.message ?? e.code);
+    } catch (_) {
+      _toast('Failed to update password');
+    } finally {
+      if (mounted) setState(() => _savingPassword = false);
+    }
+  }
+
+  Future<void> _pickAndChangeProfilePhoto() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _toast('Not signed in');
+      return;
+    }
+
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+
+    setState(() => _savingPhoto = true);
+    try {
+      final bytes = await file.readAsBytes();
+      final url = await UserService.uploadProfileImage(
+        bytes,
+        filename: file.name.isNotEmpty
+            ? file.name
+            : 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+
+      await UserService.updateProfilePhoto(url);
+      if (!mounted) return;
+      setState(() => _profilePhotoUrl = url);
+      _toast('Profile photo updated');
+    } catch (_) {
+      _toast('Failed to update photo');
+    } finally {
+      if (mounted) setState(() => _savingPhoto = false);
     }
   }
 
@@ -176,260 +331,167 @@ class _AccountTabState extends State<AccountTab> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _changePassword() async {
-    final currentPw = _currentPwCtrl.text.trim();
-    final newPw = _newPwCtrl.text.trim();
-    final confirm = _confirmPwCtrl.text.trim();
-
-    if (currentPw.isEmpty) return _toast('Enter your current password.');
-    if (newPw.length < 6) {
-      return _toast('Password must be at least 6 characters.');
-    }
-    if (newPw != confirm) return _toast('Passwords do not match.');
-
-    setState(() => _loading = true);
-    try {
-      final collections = [
-        'Resident_Accounts',
-        'Test_Accounts',
-        'Trash_Collector_Accounts',
-      ];
-      var updated = false;
-
-      for (final col in collections) {
-        final snap = await FirebaseFirestore.instance.collection(col).get();
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          for (final entry in data.entries) {
-            final val = entry.value;
-            if (val is Map<String, dynamic>) {
-              final uname = (val['Username'] ?? '').toString();
-              final storedPw = (val['Password'] ?? '').toString();
-              if (uname.toLowerCase() == _currentUsername.toLowerCase()) {
-                if (storedPw != currentPw) {
-                  _toast('Current password is incorrect.');
-                  if (mounted) setState(() => _loading = false);
-                  return;
-                }
-                final docRef = FirebaseFirestore.instance
-                    .collection(col)
-                    .doc(doc.id);
-                await FirebaseFirestore.instance.runTransaction((tx) async {
-                  final docSnap = await tx.get(docRef);
-                  if (!docSnap.exists) return;
-                  final map = Map<String, dynamic>.from(docSnap.data() as Map);
-                  final entryVal = Map<String, dynamic>.from(
-                    map[entry.key] as Map,
-                  );
-                  entryVal['Password'] = newPw;
-                  map[entry.key] = entryVal;
-                  tx.set(docRef, map);
-                });
-                updated = true;
-                break;
-              }
-            }
-          }
-          if (updated) break;
-        }
-        if (updated) break;
-      }
-
-      if (!updated) {
-        _toast('Account not found; cannot change password here.');
-        return;
-      }
-
-      _currentPwCtrl.clear();
-      _newPwCtrl.clear();
-      _confirmPwCtrl.clear();
-      _toast('Password updated.');
-    } catch (_) {
-      _toast('Failed to update password.');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _pickAndUploadAvatar() async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-    );
-    if (file == null) return;
-
-    final bytes = await file.readAsBytes();
-    setState(() {
-      _avatarPreview = bytes;
-      _avatarUploading = true;
-    });
-    try {
-      final url = await UserService.uploadProfileImage(
-        bytes,
-        filename: 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
-      await UserService.updateProfilePhoto(url);
-      if (!mounted) return;
-      setState(() {
-        _photoUrl = url;
-        _avatarPreview = null;
-      });
-      _toast('Profile photo updated.');
-    } catch (e) {
-      if (mounted) _toast('Failed: $e');
-    } finally {
-      if (mounted) setState(() => _avatarUploading = false);
-    }
-  }
-
-  Widget _buildAvatar() {
-    ImageProvider? imgProv;
-    if (_avatarPreview != null) {
-      imgProv = MemoryImage(_avatarPreview!);
-    } else if (_photoUrl.isNotEmpty) {
-      imgProv = NetworkImage(_photoUrl);
-    }
-
-    final avatar = CircleAvatar(
-      radius: 54,
-      backgroundImage: imgProv,
-      backgroundColor: AppColors.bgColor,
-      child: imgProv == null
-          ? const Icon(Icons.person, size: 50, color: AppColors.primaryGreen)
-          : null,
-    );
-
-    return Stack(
-      alignment: Alignment.bottomRight,
-      children: [
-        avatar,
-        Positioned(
-          right: 4,
-          bottom: 4,
-          child: InkWell(
-            onTap: _avatarUploading ? null : _pickAndUploadAvatar,
-            borderRadius: BorderRadius.circular(24),
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primaryGreen,
-              child: _avatarUploading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Icon(Icons.edit, size: 16, color: Colors.white),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bgColor,
-      body: AbsorbPointer(
-        absorbing: _loading,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const SizedBox(height: 8),
-            Center(child: _buildAvatar()),
-            const SizedBox(height: 12),
-            Center(
-              child: TextButton.icon(
-                onPressed: _avatarUploading ? null : _pickAndUploadAvatar,
-                icon: const Icon(
-                  Icons.camera_alt,
-                  color: AppColors.primaryGreen,
-                ),
-                label: const Text(
-                  'Change Photo',
-                  style: TextStyle(color: AppColors.primaryGreen),
-                ),
-              ),
+    final u = FirebaseAuth.instance.currentUser;
+    final uid = u?.uid ?? '';
+    final avatarUrl = _profilePhotoUrl?.trim().isNotEmpty == true
+        ? _profilePhotoUrl!.trim()
+        : (u?.photoURL ?? '').trim();
+
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Account',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryGreen,
+              fontSize: 20,
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Profile',
+          ),
+          const SizedBox(height: 12),
+          if (uid.isNotEmpty)
+            Text(
+              'UID: $uid',
               style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 22,
-                color: AppColors.primaryGreen,
+                color: AppColors.primaryGreen.withOpacity(0.8),
               ),
             ),
-            const SizedBox(height: 16),
-            Card(
-              color: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                backgroundColor: AppColors.primaryGreen.withOpacity(0.1),
+                child: avatarUrl.isEmpty
+                    ? const Icon(Icons.person, color: AppColors.primaryGreen)
+                    : null,
               ),
-              elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Current username',
-                      style: TextStyle(
-                        color: AppColors.primaryGreen,
-                        fontWeight: FontWeight.w500,
-                      ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _savingPhoto ? null : _pickAndChangeProfilePhoto,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: _savingPhoto
+                      ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _currentUsername.isEmpty ? '-' : _currentUsername,
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ],
+                  )
+                      : const Text('Change profile picture'),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Change password',
-              style: TextStyle(
-                color: AppColors.primaryGreen,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            InputField(
-              inputController: _currentPwCtrl,
-              obscuring: true,
-              label: 'Current password',
-            ),
-            const SizedBox(height: 8),
-            InputField(
-              inputController: _newPwCtrl,
-              obscuring: true,
-              label: 'New password',
-            ),
-            const SizedBox(height: 8),
-            InputField(
-              inputController: _confirmPwCtrl,
-              obscuring: true,
-              label: 'Confirm new password',
-            ),
-            const SizedBox(height: 8),
-            MediumGreenButton(
-              onPressed: _changePassword,
-              text: 'Change Password',
-            ),
-            if (_loading) ...[
-              const SizedBox(height: 24),
-              const Center(child: CircularProgressIndicator()),
             ],
-          ],
-        ),
+          ),
+
+          const SizedBox(height: 16),
+
+          InputField(
+            inputController: _usernameCtl,
+            obscuring: false,
+            label: 'Username',
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _savingUsername ? null : () async => _changeUsername(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryGreen,
+                foregroundColor: Colors.white,
+              ),
+              child: _savingUsername
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+                  : const Text('Change username'),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          InputField(
+            inputController: _passwordCtl,
+            obscuring: true,
+            label: 'Current password',
+          ),
+          const SizedBox(height: 12),
+          InputField(
+            inputController: _newPasswordCtl,
+            obscuring: true,
+            label: 'New password',
+          ),
+          const SizedBox(height: 12),
+          InputField(
+            inputController: _confirmPasswordCtl,
+            obscuring: true,
+            label: 'Confirm new password',
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _savingPassword ? null : () async => _changePassword(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryGreen,
+                foregroundColor: Colors.white,
+              ),
+              child: _savingPassword
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+                  : const Text('Change password'),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+
+          const SizedBox(height: 16),
+          InputField(
+            inputController: _emailCtl,
+            obscuring: false,
+            label: 'Email',
+          ),
+          const SizedBox(height: 12),
+          InputField(
+            inputController: _passwordCtl,
+            obscuring: true,
+            label: 'Current password',
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _saving ? null : () async => _changeEmail(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryGreen,
+                foregroundColor: Colors.white,
+              ),
+              child: _saving
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+                  : const Text('Change email'),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,402 +1,501 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+
 import '../config/cloudinary_config.dart';
-import 'post_cache.dart';
 
 class PostService {
-  static CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance.collection('Posts');
+  static final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  static CollectionReference<Map<String, dynamic>> _commentsCol(
-    String postId,
-  ) => _col.doc(postId).collection('comments');
+  static CollectionReference<Map<String, dynamic>> get _legacyPostsCol =>
+      _db.collection('posts');
 
-  static Stream<QuerySnapshot<Map<String, dynamic>>> postsStream() {
-    return _col.orderBy('createdAt', descending: true).snapshots();
+  static const String _mapPostsCol = 'Posts';
+
+  static bool _isMapPostId(String id) =>
+      id.startsWith('Posts:') && id.split(':').length >= 3;
+
+  static ({String subdiv, String key}) _parseMapPostId(String id) {
+    if (!_isMapPostId(id)) {
+      throw ArgumentError('Not a map-shaped post id: $id');
+    }
+    final parts = id.split(':');
+    final subdiv = parts[1];
+    final key = parts.sublist(2).join(':');
+    return (subdiv: subdiv, key: key);
   }
 
-  /// Returns a flattened stream of posts when posts are stored as map fields
-  /// inside each document. Each map entry (e.g. post0, post1) becomes a
-  /// single map with keys: postId (docId::entryKey), docId, entryKey, title,
-  /// description, imageUrl, subdivisionId.
-  /// If [filterSubdivisionId] is provided, only entries whose parent
-  /// document's SubdivisionID (or subdivisionId) equals that value will be
-  /// returned. This performs client-side filtering so it works regardless of
-  /// whether the field name is 'SubdivisionID' or 'subdivisionId'.
+  static DocumentReference<Map<String, dynamic>> _subdivDoc(String subdiv) =>
+      _db.collection(_mapPostsCol).doc(subdiv);
+
+  static DocumentReference<Map<String, dynamic>> _metaDocFor(String postId) {
+    if (_isMapPostId(postId)) {
+      final p = _parseMapPostId(postId);
+      return _subdivDoc(p.subdiv)
+          .collection('_postMeta')
+          .doc(p.key)
+          .collection('meta')
+          .doc('engagement');
+    }
+    return _legacyPostsCol.doc(postId).collection('_meta').doc('engagement');
+  }
+
   static Stream<List<Map<String, dynamic>>> postsFlattenedStream({
-    String? filterSubdivisionId,
-  }) async* {
-    final stream = _col.snapshots();
-    try {
-      await for (final snap in stream) {
-        final out = <Map<String, dynamic>>[];
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          final subdivisionId =
-              (data['SubdivisionID'] ?? data['subdivisionId'] ?? doc.id)
-                  .toString();
-          if (filterSubdivisionId != null && filterSubdivisionId.isNotEmpty) {
-            if (subdivisionId != filterSubdivisionId) continue;
-          }
-          // If this document itself looks like a post (top-level fields like
-          // 'title'/'description'), include it as a single post entry.
-          bool addedTop = false;
-          final hasTopLevelTitle =
-              (data['title'] ?? data['Title']) != null &&
-              (data['title'] ?? data['Title']).toString().trim().isNotEmpty;
-          final hasTopLevelDesc =
-              (data['description'] ?? data['Description']) != null &&
-              (data['description'] ?? data['Description'])
-                  .toString()
-                  .trim()
-                  .isNotEmpty;
-          final hasTopLevelImage =
-              (data['imageUrl'] ?? data['ImageUrl']) != null &&
-              (data['imageUrl'] ?? data['ImageUrl'])
-                  .toString()
-                  .trim()
-                  .isNotEmpty;
-          if (hasTopLevelTitle || hasTopLevelDesc || hasTopLevelImage) {
-            final title = (data['title'] ?? data['Title'] ?? '').toString();
-            final desc = (data['description'] ?? data['Description'] ?? '')
-                .toString();
-            final imageUrl = (data['imageUrl'] ?? data['ImageUrl'] ?? '')
-                .toString();
-            out.add({
-              'postId': doc.id,
-              'docId': doc.id,
-              'entryKey': null,
-              'title': title,
-              'description': desc,
-              'imageUrl': imageUrl,
-              'subdivisionId': subdivisionId,
-            });
-            addedTop = true;
-          }
+    required String filterSubdivisionId,
+  }) {
+    final docRef = _subdivDoc(filterSubdivisionId);
+    return docRef.snapshots().map((snap) {
+      final data = snap.data() ?? const <String, dynamic>{};
+      final items = <({String key, Map<String, dynamic> val})>[];
 
-          // Also support map-entry shaped posts stored inside the document.
-          for (final entry in data.entries) {
-            final key = entry.key;
-            if (key == 'SubdivisionID' || key == 'subdivisionId') continue;
-            final val = entry.value;
-            if (val is Map<String, dynamic>) {
-              final title = (val['Title'] ?? val['title'] ?? '').toString();
-              final desc = (val['Description'] ?? val['description'] ?? '')
-                  .toString();
-              final imageUrl = (val['ImageUrl'] ?? val['imageUrl'] ?? '')
-                  .toString();
-              // Avoid duplicating if the top-level already represented the same
-              // content (unlikely, but safe guard).
-              if (addedTop && (key == 'title' || key == 'description'))
-                continue;
-              out.add({
-                'postId': '${doc.id}::${key}',
-                'docId': doc.id,
-                'entryKey': key,
-                'title': title,
-                'description': desc,
-                'imageUrl': imageUrl,
-                'subdivisionId': subdivisionId,
-              });
-            }
-          }
+      data.forEach((k, v) {
+        if (v is Map<String, dynamic>) {
+          final hasAny = (v['Title'] ?? v['Description'] ?? v['ImageUrl']) != null;
+          if (hasAny) items.add((key: k, val: v));
         }
+      });
 
-        // Persist to local cache so the feed can be shown offline.
-        try {
-          await PostCache.savePosts(out);
-        } catch (_) {}
-
-        yield out;
+      int numFromKey(String key) {
+        final m = RegExp(r'(\d+)').allMatches(key).toList();
+        if (m.isEmpty) return -1;
+        return int.tryParse(m.last.group(1)!) ?? -1;
       }
-    } catch (e) {
-      // On stream errors (commonly due to no network) fall back to cached posts
-      // so the user can still view previously loaded content offline.
-      try {
-        final cached = await PostCache.readPosts();
-        if (cached.isNotEmpty) {
-          // If a subdivision filter is provided, apply it to the cached list.
-          final filtered =
-              (filterSubdivisionId == null || filterSubdivisionId.isEmpty)
-              ? cached
-              : cached
-                    .where(
-                      (m) =>
-                          (m['subdivisionId'] ?? '').toString() ==
-                          filterSubdivisionId,
-                    )
-                    .toList();
-          yield filtered;
-          return;
+
+      items.sort((a, b) {
+        final ta = a.val['createdAt'];
+        final tb = b.val['createdAt'];
+        if (ta is Timestamp && tb is Timestamp) {
+          return tb.compareTo(ta); // desc
         }
-      } catch (_) {}
-      // If nothing in cache, rethrow so callers can see the error if needed.
-      rethrow;
-    }
-  }
+        final na = numFromKey(a.key);
+        final nb = numFromKey(b.key);
+        if (na != nb) return nb.compareTo(na);
+        return b.key.compareTo(a.key);
+      });
 
-  static Stream<DocumentSnapshot<Map<String, dynamic>>> postStream(
-    String postId,
-  ) {
-    // Keep legacy behavior for when postId is a doc id.
-    return _col.doc(postId).snapshots();
-  }
-
-  /// Stream that returns a single post's flattened map when posts are stored
-  /// as map entries inside a Posts document. The expected synthetic postId
-  /// format is 'docId::entryKey'. Returns null if the entry is missing.
-  static Stream<Map<String, dynamic>?> postMapStream(String syntheticId) {
-    if (!syntheticId.contains('::')) {
-      // Fallback: listen to doc and convert root fields to a map
-      return _col.doc(syntheticId).snapshots().map((snap) => snap.data());
-    }
-    final parts = syntheticId.split('::');
-    final docId = parts[0];
-    final entryKey = parts[1];
-    return _col.doc(docId).snapshots().map((snap) {
-      final data = snap.data();
-      if (data == null) return null;
-      final v = data[entryKey];
-      if (v is Map<String, dynamic>) {
-        final title = (v['Title'] ?? v['title'] ?? '').toString();
-        final desc = (v['Description'] ?? v['description'] ?? '').toString();
-        final imageUrl = (v['ImageUrl'] ?? v['imageUrl'] ?? '').toString();
-        return {
-          'postId': syntheticId,
-          'docId': docId,
-          'entryKey': entryKey,
-          'title': title,
-          'description': desc,
-          'imageUrl': imageUrl,
-          'subdivisionId':
-              (data['SubdivisionID'] ?? data['subdivisionId'] ?? docId)
-                  .toString(),
-        };
-      }
-      return null;
+      return items
+          .map((e) => <String, dynamic>{
+        'postId': '$_mapPostsCol:${filterSubdivisionId}:${e.key}',
+        'title': (e.val['Title'] ?? '').toString(),
+        'description': (e.val['Description'] ?? '').toString(),
+        'imageUrl': (e.val['ImageUrl'] ?? '').toString(),
+      })
+          .toList();
     });
   }
 
-  static Future<void> createPost({
-    required String title,
-    required String description,
-    String? imageUrl,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw StateError('Not signed in');
+  static Stream<Map<String, dynamic>?> postMapStream(String postId) {
+    if (_isMapPostId(postId)) {
+      final p = _parseMapPostId(postId);
+      return _subdivDoc(p.subdiv).snapshots().map((snap) {
+        final data = snap.data() ?? const <String, dynamic>{};
+        final val = data[p.key];
+        if (val is Map<String, dynamic>) return val;
+        return null;
+      });
+    }
+    return _legacyPostsCol.doc(postId).snapshots().map((d) => d.data());
+  }
 
-    final userSnap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-    final userData = userSnap.data() ?? {};
+  static final Set<String> _seedChecked = <String>{};
+  static final Set<String> _commentsMigratedChecked = <String>{};
 
-    final name =
-        (userData['name'] ??
-                userData['displayName'] ??
-                user.displayName ??
-                user.email ??
-                '')
-            .toString()
-            .trim();
-    final role = (userData['role'] ?? 'User').toString();
-    final photoUrl = (userData['photoUrl'] ?? user.photoURL)?.toString();
+  static Stream<Map<String, dynamic>> postEngagementStream(String postId) {
+    if (!_seedChecked.contains(postId)) {
+      _seedChecked.add(postId);
+      _seedEngagementFromLegacyIfMissing(postId);
+      _migrateLegacyCommentsIfNeeded(postId);
+    }
 
-    await _col.add({
-      'title': title,
-      'description': description,
-      'imageUrl': imageUrl,
-      'createdAt': FieldValue.serverTimestamp(),
-      'userId': user.uid,
-      'userName': name.isEmpty ? 'Unknown' : name,
-      'userRole': role,
-      'userPhotoUrl': photoUrl,
-      'commentCount': 0,
-      'likeCount': 0,
-      'shareCount': 0,
-      'likedBy': <String>[],
+    final doc = _metaDocFor(postId);
+    return doc.snapshots().map((d) {
+      final m = d.data() ?? const <String, dynamic>{};
+      final likedBy = List<String>.from(m['likedBy'] ?? const <String>[]);
+      final likeCount = (m['likeCount'] ?? likedBy.length) as int;
+      return {'likedBy': likedBy, 'likeCount': likeCount};
     });
   }
 
-  static Future<String> uploadPostImage(
-    List<int> bytes, {
-    required String filename,
-  }) async {
-    final cloud = CloudinaryConfig.cloudName;
-    final preset = CloudinaryConfig.uploadPreset;
-    final folder = CloudinaryConfig.folder;
+  static Future<void> toggleLike(String postId, String uid) async {
+    await _seedEngagementFromLegacyIfMissing(postId);
+    final meta = _metaDocFor(postId);
 
-    if (cloud.isEmpty || preset.isEmpty) {
-      throw StateError('Cloudinary config missing');
-    }
-
-    final uri = Uri.parse(
-      'https://api.cloudinary.com/v1_1/$cloud/image/upload',
-    );
-    final req = http.MultipartRequest('POST', uri)
-      ..fields['upload_preset'] = preset;
-    if (folder.isNotEmpty) req.fields['folder'] = folder;
-
-    final contentType = MediaType('image', _extToSubtype(filename));
-    req.files.add(
-      http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: filename,
-        contentType: contentType,
-      ),
-    );
-
-    final streamed = await req.send();
-    final resp = await http.Response.fromStream(streamed);
-    if (resp.statusCode != 200) {
-      throw StateError(
-        'Cloudinary upload failed ${resp.statusCode}: ${resp.body}',
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(meta);
+      final data = snap.data() ?? <String, dynamic>{};
+      final likedBy = Set<String>.from(data['likedBy'] ?? const <String>[]);
+      if (likedBy.contains(uid)) {
+        likedBy.remove(uid);
+      } else {
+        likedBy.add(uid);
+      }
+      tx.set(
+        meta,
+        {
+          'likedBy': likedBy.toList(),
+          'likeCount': likedBy.length,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
       );
-    }
-    final body = jsonDecode(resp.body) as Map<String, dynamic>;
-    final url = body['secure_url'] as String?;
-    if (url == null || url.isEmpty)
-      throw StateError('No secure_url in response');
-    return url;
-  }
-
-  static String _extToSubtype(String name) {
-    final lower = name.toLowerCase();
-    if (lower.endsWith('.png')) return 'png';
-    if (lower.endsWith('.webp')) return 'webp';
-    if (lower.endsWith('.gif')) return 'gif';
-    return 'jpeg';
+    });
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> commentsStream(
-    String postId,
-  ) {
-    return _commentsCol(
-      postId,
-    ).orderBy('createdAt', descending: false).snapshots();
+      String postId,
+      ) {
+    if (!_commentsMigratedChecked.contains(postId)) {
+      _commentsMigratedChecked.add(postId);
+      _migrateLegacyCommentsIfNeeded(postId);
+    }
+    final meta = _metaDocFor(postId);
+    return meta.collection('comments').snapshots();
   }
 
   static Future<void> addComment({
     required String postId,
     required String text,
-    String? uid,
-    String? userId,
-    String? username,
-    String? userName,
+    required String userId,
+    required String userName,
     String? photoUrl,
   }) async {
-    final actualUid = (userId ?? uid)?.trim();
-    final actualName = (userName ?? username)?.trim() ?? '';
-    if (actualUid == null || actualUid.isEmpty) {
-      throw ArgumentError('userId/uid is required');
+    final meta = _metaDocFor(postId);
+    await meta.collection('comments').add({
+      'text': text,
+      'uid': userId,
+      'username': userName,
+      if (photoUrl != null && photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await meta.set(
+      {'commentCount': FieldValue.increment(1), 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
+  static Future<String> createPost({
+    required String subdivisionId,
+    required String title,
+    required String description,
+    String? imageUrl,
+  }) async {
+    final doc = _subdivDoc(subdivisionId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(doc);
+      final data = snap.data() ?? <String, dynamic>{};
+
+      int maxIdx = -1;
+      for (final k in data.keys) {
+        final m = RegExp(r'(\d+)').allMatches(k).toList();
+        if (m.isEmpty) continue;
+        final n = int.tryParse(m.last.group(1)!) ?? -1;
+        if (n > maxIdx) maxIdx = n;
+      }
+      final nextKey = 'post${maxIdx + 1}';
+      final payload = <String, dynamic>{
+        'Title': title,
+        'Description': description,
+        if (imageUrl != null && imageUrl.isNotEmpty) 'ImageUrl': imageUrl,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      tx.set(doc, {nextKey: payload}, SetOptions(merge: true));
+    });
+
+    return '$_mapPostsCol:$subdivisionId:post0';
+  }
+
+  static Future<String> uploadPostImage(
+      Uint8List bytes, {
+        required String filename,
+      }) async {
+    final cloud = CloudinaryConfig.cloudName;
+    final preset = CloudinaryConfig.uploadPreset;
+    final folder = (CloudinaryConfig.folder).trim();
+    if (cloud.isEmpty || preset.isEmpty) {
+      throw StateError('Cloudinary not configured');
     }
 
-    final batch = FirebaseFirestore.instance.batch();
-    final commentRef = _commentsCol(postId).doc();
-    batch.set(commentRef, {
-      'text': text.trim(),
-      'uid': actualUid,
-      'username': actualName.isEmpty ? 'User' : actualName,
-      'photoUrl': photoUrl,
-      'createdAt': FieldValue.serverTimestamp(),
-      'likedBy': <String>[],
-      'likesCount': 0,
-    });
-    final postRef = _col.doc(postId);
-    batch.update(postRef, {'commentCount': FieldValue.increment(1)});
-    await batch.commit();
+    final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloud/image/upload');
+    final req = http.MultipartRequest('POST', uri)
+      ..fields['upload_preset'] = preset;
+    if (folder.isNotEmpty) req.fields['folder'] = folder;
+
+    final lower = filename.toLowerCase();
+    MediaType mediaType;
+    if (lower.endsWith('.png')) {
+      mediaType = MediaType('image', 'png');
+    } else if (lower.endsWith('.webp')) {
+      mediaType = MediaType('image', 'webp');
+    } else if (lower.endsWith('.gif')) {
+      mediaType = MediaType('image', 'gif');
+    } else {
+      mediaType = MediaType('image', 'jpeg');
+    }
+
+    req.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: filename,
+      contentType: mediaType,
+    ));
+
+    final streamed = await req.send();
+    final resp = await http.Response.fromStream(streamed);
+    if (resp.statusCode != 200 && resp.statusCode != 201) {
+      throw StateError(
+        'Cloudinary upload failed: ${resp.statusCode} ${resp.reasonPhrase}\n${resp.body}',
+      );
+    }
+    final body = jsonDecode(resp.body) as Map<String, dynamic>;
+    final url = (body['secure_url'] ?? body['url'] ?? '').toString();
+    if (url.isEmpty) throw StateError('Upload returned no URL');
+    return url;
   }
 
-  static Future<void> toggleLike(String postId, String uid) async {
-    final docId = postId.contains('::') ? postId.split('::').first : postId;
-    final postRef = _col.doc(docId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(postRef);
-      if (!snap.exists) throw StateError('Post missing');
-      final data = snap.data() as Map<String, dynamic>;
-      final List likedBy = (data['likedBy'] as List?) ?? [];
-      final hasLiked = likedBy.contains(uid);
-      tx.update(postRef, {
-        'likedBy': hasLiked
-            ? FieldValue.arrayRemove([uid])
-            : FieldValue.arrayUnion([uid]),
-        'likeCount': FieldValue.increment(hasLiked ? -1 : 1),
-      });
-    });
-  }
+  static Future<void> _seedEngagementFromLegacyIfMissing(String postId) async {
+    final meta = _metaDocFor(postId);
+    try {
+      final cur = await meta.get();
+      final hasAny = cur.exists &&
+          ((cur.data()?['likedBy'] ?? cur.data()?['likeCount']) != null);
+      if (hasAny) return;
 
-  static Future<void> togglePostLike({
-    required String postId,
-    required String userId,
-  }) async {
-    return toggleLike(postId, userId);
-  }
-
-  static Future<void> toggleCommentLike({
-    required String postId,
-    required String commentId,
-    required String userId,
-  }) async {
-    final ref = _commentsCol(postId).doc(commentId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(ref);
-      if (!snap.exists) return;
-      final data = snap.data() as Map<String, dynamic>;
-      final likedBy = List<String>.from(data['likedBy'] ?? <String>[]);
-      final isLiked = likedBy.contains(userId);
-      if (isLiked) {
-        likedBy.remove(userId);
+      Map<String, dynamic>? legacy;
+      if (_isMapPostId(postId)) {
+        final p = _parseMapPostId(postId);
+        legacy = await _readLegacyEngagementFromMapField(p.subdiv, p.key);
+        legacy ??= await _readLegacyEngagementCandidates(postId);
       } else {
-        likedBy.add(userId);
+        legacy = await _readLegacyEngagement(postId);
       }
-      tx.update(ref, {'likedBy': likedBy, 'likesCount': likedBy.length});
-    });
+
+      if (legacy != null) {
+        await meta.set(
+          {
+            'likedBy': List<String>.from(legacy['likedBy'] ?? const <String>[]),
+            'likeCount': (legacy['likeCount'] ?? 0) as int,
+            'seededFromLegacyAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } else {
+        await meta.set(
+          {'likedBy': <String>[], 'likeCount': 0},
+          SetOptions(merge: true),
+        );
+      }
+    } catch (_) {
+    }
   }
 
-  static Future<void> incrementShare(String postId) async {
-    await _col.doc(postId).update({'shareCount': FieldValue.increment(1)});
-  }
+  static Future<void> _migrateLegacyCommentsIfNeeded(String postId) async {
+    final meta = _metaDocFor(postId);
+    try {
+      final existing = await meta.collection('comments').limit(1).get();
+      if (existing.docs.isNotEmpty) return;
 
-  static Future<void> backfillEngagementFields() async {
-    final posts = await _col.get();
-    final batch = FirebaseFirestore.instance.batch();
-    int ops = 0;
-    for (final doc in posts.docs) {
-      final d = doc.data();
-      bool needs = false;
-      final update = <String, dynamic>{};
-      if (!d.containsKey('likeCount')) {
-        update['likeCount'] = (d['likedBy'] is List)
-            ? (d['likedBy'] as List).length
-            : 0;
-        needs = true;
+      final toWrite = <Map<String, dynamic>>[];
+
+      if (_isMapPostId(postId)) {
+        final p = _parseMapPostId(postId);
+
+        try {
+          final cs = await _subdivDoc(p.subdiv).collection('comments').get();
+          for (final d in cs.docs) {
+            final m = d.data();
+            final pid = (m['postId'] ?? m['postID'] ?? m['post'] ?? '').toString();
+            if (pid == p.key) {
+              toWrite.add({
+                'id': d.id,
+                'text': (m['text'] ?? m['comment'] ?? '').toString(),
+                'uid': (m['uid'] ?? m['userId'] ?? m['user_id'] ?? '').toString(),
+                'username':
+                (m['username'] ?? m['userName'] ?? m['name'] ?? 'User').toString(),
+                'photoUrl': (m['photoUrl'] ?? '').toString(),
+                'createdAt': m['createdAt'] is Timestamp ? m['createdAt'] : null,
+              });
+            }
+          }
+        } catch (_) {}
+
+        try {
+          final candidates = await _legacyIdCandidatesFor(postId);
+          for (final id in candidates) {
+            final cs = await _legacyPostsCol.doc(id).collection('comments').get();
+            for (final d in cs.docs) {
+              final m = d.data();
+              toWrite.add({
+                'id': d.id,
+                'text': (m['text'] ?? m['comment'] ?? '').toString(),
+                'uid': (m['uid'] ?? m['userId'] ?? m['user_id'] ?? '').toString(),
+                'username':
+                (m['username'] ?? m['userName'] ?? m['name'] ?? 'User').toString(),
+                'photoUrl': (m['photoUrl'] ?? '').toString(),
+                'createdAt': m['createdAt'] is Timestamp ? m['createdAt'] : null,
+              });
+            }
+          }
+        } catch (_) {}
+      } else {
+        try {
+          final cs = await _legacyPostsCol.doc(postId).collection('comments').get();
+          for (final d in cs.docs) {
+            final m = d.data();
+            toWrite.add({
+              'id': d.id,
+              'text': (m['text'] ?? m['comment'] ?? '').toString(),
+              'uid': (m['uid'] ?? m['userId'] ?? m['user_id'] ?? '').toString(),
+              'username':
+              (m['username'] ?? m['userName'] ?? m['name'] ?? 'User').toString(),
+              'photoUrl': (m['photoUrl'] ?? '').toString(),
+              'createdAt': m['createdAt'] is Timestamp ? m['createdAt'] : null,
+            });
+          }
+        } catch (_) {}
       }
-      if (!d.containsKey('shareCount')) {
-        update['shareCount'] = 0;
-        needs = true;
-      }
-      if (!d.containsKey('commentCount')) {
-        update['commentCount'] = 0;
-        needs = true;
-      }
-      if (!d.containsKey('likedBy')) {
-        update['likedBy'] = <String>[];
-        if (!update.containsKey('likeCount')) update['likeCount'] = 0;
-        needs = true;
-      }
-      if (needs) {
-        batch.update(doc.reference, update);
-        ops++;
-        if (ops == 400) {
-          await batch.commit();
-          ops = 0;
+
+      if (toWrite.isEmpty) return;
+
+      final batch = _db.batch();
+      for (final c in toWrite) {
+        final ref =
+        meta.collection('comments').doc(c['id']?.toString().isNotEmpty == true ? c['id'] as String : null);
+        final map = <String, dynamic>{
+          'text': c['text'] ?? '',
+          'uid': c['uid'] ?? '',
+          'username': c['username'] ?? 'User',
+          if ((c['photoUrl'] ?? '').toString().isNotEmpty)
+            'photoUrl': c['photoUrl'],
+          'createdAt': c['createdAt'] ?? FieldValue.serverTimestamp(),
+        };
+        if (ref.id.isEmpty) {
+          final newRef = meta.collection('comments').doc();
+          batch.set(newRef, map, SetOptions(merge: true));
+        } else {
+          batch.set(ref, map, SetOptions(merge: true));
         }
       }
+      await batch.commit();
+
+      await meta.set(
+        {
+          'commentCount': FieldValue.increment(toWrite.length),
+          'migratedCommentsAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
     }
-    if (ops > 0) await batch.commit();
+  }
+
+  static Future<List<String>> _legacyIdCandidatesFor(String postId) async {
+    if (!_isMapPostId(postId)) return [postId];
+    final p = _parseMapPostId(postId);
+    final subdiv = p.subdiv;
+    final key = p.key;
+
+    String norm(String s) => s.trim();
+    String lc(String s) => s.toLowerCase();
+
+    final variants = <String>{
+      key,
+      '$subdiv-$key',
+      '$subdiv/${key}',
+      '${lc(subdiv)}-$key',
+      norm(key),
+      lc(key),
+    }..removeWhere((e) => e.isEmpty);
+
+    return variants.toList();
+  }
+
+  static Future<Map<String, dynamic>?> _readLegacyEngagementFromMapField(
+      String subdiv,
+      String key,
+      ) async {
+    try {
+      final doc = await _subdivDoc(subdiv).get();
+      final data = doc.data() ?? const <String, dynamic>{};
+      final val = data[key];
+      if (val is! Map<String, dynamic>) return null;
+
+      final likedByRaw = val['likedBy'];
+      final likeCountRaw = val['likeCount'];
+
+      final likedBy = <String>[];
+      if (likedByRaw is Iterable) {
+        for (final x in likedByRaw) {
+          final s = x?.toString().trim() ?? '';
+          if (s.isNotEmpty) likedBy.add(s);
+        }
+      }
+      int likeCount = 0;
+      if (likeCountRaw is int) likeCount = likeCountRaw;
+      if (likeCount == 0 && likedBy.isNotEmpty) likeCount = likedBy.length;
+
+      if (likedBy.isEmpty && likeCount == 0) return null;
+      return {'likedBy': likedBy, 'likeCount': likeCount};
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> _readLegacyEngagementCandidates(
+      String postId,
+      ) async {
+    final candidates = await _legacyIdCandidatesFor(postId);
+    for (final id in candidates) {
+      final m = await _readLegacyEngagement(id);
+      if (m != null) return m;
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> _readLegacyEngagement(
+      String postId,
+      ) async {
+    try {
+      final doc = await _legacyPostsCol.doc(postId).get();
+      final d = doc.data() ?? const <String, dynamic>{};
+
+      final likedBy = <String>[];
+      int likeCount = 0;
+
+      final fieldLikedBy = d['likedBy'] ?? d['likes'];
+      if (fieldLikedBy is Iterable) {
+        for (final x in fieldLikedBy) {
+          final s = x?.toString().trim() ?? '';
+          if (s.isNotEmpty) likedBy.add(s);
+        }
+      }
+
+      if (d['likeCount'] is int) {
+        likeCount = d['likeCount'] as int;
+      } else if (likedBy.isNotEmpty) {
+        likeCount = likedBy.length;
+      }
+
+      try {
+        final likesSnap =
+        await _legacyPostsCol.doc(postId).collection('likes').get();
+        if (likesSnap.docs.isNotEmpty) {
+          for (final l in likesSnap.docs) {
+            final m = l.data();
+            final uid = (m['uid'] ?? m['userId'] ?? '').toString().trim();
+            if (uid.isNotEmpty) likedBy.add(uid);
+          }
+          likeCount = likedBy.toSet().length;
+        }
+      } catch (_) {}
+
+      if (likedBy.isEmpty && likeCount == 0) return null;
+      return {'likedBy': likedBy.toSet().toList(), 'likeCount': likeCount};
+    } catch (_) {
+      return null;
+    }
   }
 }

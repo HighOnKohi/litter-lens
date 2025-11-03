@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:litter_lens/login_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,34 +19,72 @@ class _MoreTabState extends State<MoreTab> {
   final TextEditingController _postNameController = TextEditingController();
   final TextEditingController _postDetailController = TextEditingController();
 
-  bool _isAdmin = false;
+  bool? _isAdmin;
+  bool _roleLoaded = false;
+  bool _loggingOut = false;
+  StreamSubscription<User?>? _authSub;
 
   @override
   void initState() {
     super.initState();
+
     _loadRole();
+
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (!mounted) return;
+      if (user != null) {
+        _loadRole();
+      } else {
+        setState(() {
+          _isAdmin = null;
+          _roleLoaded = false;
+        });
+      }
+    });
   }
 
   Future<void> _loadRole() async {
+    if (!mounted) return;
+    setState(() {
+      _roleLoaded = false;
+      _isAdmin = null;
+    });
+
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        setState(() {
+          _isAdmin = false;
+          _roleLoaded = true;
+        });
+        return;
+      }
+
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
+
       final role =
-          (doc.data()?['role'] as String?)?.toLowerCase() ?? 'homeowner';
-      if (mounted) {
-        setState(() {
-          _isAdmin = role == 'admin';
-        });
-      }
-    } catch (_) {}
+          (doc.data()?['role'] as String?)?.toLowerCase() ?? 'resident';
+
+      if (!mounted) return;
+      setState(() {
+        _isAdmin = role == 'admin';
+        _roleLoaded = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isAdmin = false;
+        _roleLoaded = true;
+      });
+    }
   }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _postNameController.dispose();
     _postDetailController.dispose();
     super.dispose();
@@ -66,11 +105,11 @@ class _MoreTabState extends State<MoreTab> {
   }
 
   Widget buildMoreTile(
-    IconData icon,
-    String title, {
-    Color? color,
-    VoidCallback? onTap,
-  }) {
+      IconData icon,
+      String title, {
+        Color? color,
+        VoidCallback? onTap,
+      }) {
     return ListTile(
       leading: Icon(icon, color: color ?? const Color(0xFF0B8A4D)),
       title: Text(title),
@@ -82,6 +121,64 @@ class _MoreTabState extends State<MoreTab> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       onTap: onTap,
     );
+  }
+
+  Future<void> _performLogout() async {
+    if (_loggingOut) return;
+    _loggingOut = true;
+    try {
+      try {
+        await AccountService.clearCache();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('cached_role');
+      } catch (_) {}
+
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+
+      if (!mounted) return;
+
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+            (_) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to log out: $e')),
+      );
+    } finally {
+      _loggingOut = false;
+    }
+  }
+
+  Future<void> _openLogoutDialog() async {
+    if (!mounted || _loggingOut) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log out'),
+        content: const Text('Are you sure you want to log out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await _performLogout();
+    }
   }
 
   @override
@@ -108,7 +205,6 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 12),
 
-          // HOA Management
           buildSectionTitle("HOA Management"),
           Card(
             color: const Color(0xFFEEFFF7),
@@ -132,7 +228,6 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 12),
 
-          // Help
           buildSectionTitle("Help"),
           Card(
             color: const Color(0xFFEEFFF7),
@@ -167,7 +262,7 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 20),
 
-          if (_isAdmin) ...[
+          if (_roleLoaded && _isAdmin == true) ...[
             buildSectionTitle("Developer Settings"),
             Card(
               shape: RoundedRectangleBorder(
@@ -194,31 +289,7 @@ class _MoreTabState extends State<MoreTab> {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            onPressed: () async {
-              // Clear cached subdivision and uid so auto-restore won't re-login
-              try {
-                await AccountService.clearCache();
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.remove('cached_role');
-              } catch (e) {
-                // ignore prefs errors
-              }
-
-              // Sign out of FirebaseAuth (if used)
-              try {
-                await FirebaseAuth.instance.signOut();
-              } catch (e) {
-                // ignore
-              }
-
-              if (!context.mounted) return;
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginPage()),
-                (route) => false,
-              );
-            },
-
+            onPressed: _loggingOut ? null : _openLogoutDialog,
             icon: const Icon(Icons.logout),
             label: const Text("Log Out"),
           ),

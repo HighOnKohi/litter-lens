@@ -50,7 +50,7 @@ class _PostState extends State<Post> {
       return parts.first.characters.take(1).toString().toUpperCase();
     }
     return (parts.first.characters.take(1).toString() +
-            parts.last.characters.take(1).toString())
+        parts.last.characters.take(1).toString())
         .toUpperCase();
   }
 
@@ -95,8 +95,8 @@ class _PostState extends State<Post> {
       builder: (ctx, snap) {
         final map = snap.data;
         final title = (map?['Title'] ?? widget.title).toString();
-        final description = (map?['Description'] ?? widget.description)
-            .toString();
+        final description =
+        (map?['Description'] ?? widget.description).toString();
         final imageUrl = (map?['ImageUrl'] ?? widget.imageUrl).toString();
         final avatarUrl = (widget.authorAvatarUrl ?? '').trim();
 
@@ -118,15 +118,14 @@ class _PostState extends State<Post> {
                   children: [
                     CircleAvatar(
                       radius: 18,
-                      backgroundImage: avatarUrl.isNotEmpty
-                          ? NetworkImage(avatarUrl)
-                          : null,
+                      backgroundImage:
+                      avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
                       backgroundColor: accentColor.withOpacity(0.1),
                       child: avatarUrl.isEmpty
                           ? Text(
-                              _initials(widget.authorName),
-                              style: const TextStyle(color: accentColor),
-                            )
+                        _initials(widget.authorName),
+                        style: const TextStyle(color: accentColor),
+                      )
                           : null,
                     ),
                     const SizedBox(width: 12),
@@ -137,15 +136,20 @@ class _PostState extends State<Post> {
                           if (hasTitle)
                             Text(
                               title,
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(color: accentColor),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           Text(
                             widget.authorName,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: accentColor.withOpacity(0.8)),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                color: accentColor.withOpacity(0.8)),
                           ),
                         ],
                       ),
@@ -158,9 +162,10 @@ class _PostState extends State<Post> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   child: Text(
                     description,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: accentColor.withOpacity(0.9),
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: accentColor.withOpacity(0.9)),
                   ),
                 ),
               if (hasImage) ...[
@@ -183,23 +188,15 @@ class _PostState extends State<Post> {
               ],
               Divider(height: 1, color: accentColor.withOpacity(0.3)),
 
-              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: PostService.postStream(
-                  widget.postId.contains('::')
-                      ? widget.postId.split('::').first
-                      : widget.postId,
-                ),
-                builder: (context, snap) {
-                  final data = snap.data?.data() ?? const <String, dynamic>{};
-                  final likedBy = List<String>.from(
-                    data['likedBy'] ?? const <String>[],
-                  );
+              StreamBuilder<Map<String, dynamic>>(
+                stream: PostService.postEngagementStream(widget.postId),
+                builder: (context, engSnap) {
+                  final eng = engSnap.data ?? const <String, dynamic>{};
+                  final likedBy =
+                  List<String>.from(eng['likedBy'] ?? const <String>[]);
                   final isLiked = likedBy.contains(widget.currentUserId);
                   final likeCount =
-                      (data['likeCount'] ??
-                              data['likesCount'] ??
-                              likedBy.length)
-                          as int;
+                  (eng['likeCount'] ?? likedBy.length) as int;
 
                   return Theme(
                     data: Theme.of(context).copyWith(

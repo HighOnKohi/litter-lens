@@ -57,14 +57,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   late final List<Widget> _pages = [
-    const HomeTab(),    // 0
-    const VoiceTab(),   // 1
+    const HomeTab(), // 0
+    const VoiceTab(), // 1
     MoreTab(onNavigateTo: _onItemTapped), // 2
     const AnalyticsTab(), // 3
-    const AboutTab(),     // 4
-    const GuideTab(),     // 5
-    const SupportTab(),   // 6
-    const AccountTab(),   // 7
+    const AboutTab(), // 4
+    const GuideTab(), // 5
+    const SupportTab(), // 6
+    const AccountTab(), // 7
   ];
 
   void _onItemTapped(int index) {
@@ -78,9 +78,7 @@ class _HomePageState extends State<HomePage> {
 
   void _onBottomTapped(int bottomIndex) {
     final isCollector = _role == 'collector';
-    final actualIndex = isCollector
-        ? bottomIndex
-        : (bottomIndex == 0 ? 0 : 2);
+    final actualIndex = isCollector ? bottomIndex : (bottomIndex == 0 ? 0 : 2);
     setState(() {
       if (actualIndex <= 2) {
         _lastMainIndex = actualIndex;
@@ -130,16 +128,16 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
             const SizedBox(width: 8),
-            const Text('Litter Lens'),
+            const Text('Eco Metrics'),
           ],
         ),
         leading: (_selectedIndex <= 2)
             ? null
             : IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () =>
-              setState(() => _selectedIndex = _lastMainIndex),
-        ),
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () =>
+                    setState(() => _selectedIndex = _lastMainIndex),
+              ),
       ),
       body: _loadingRole
           ? const Center(child: CircularProgressIndicator())
@@ -148,7 +146,10 @@ class _HomePageState extends State<HomePage> {
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           if (isCollector)
-            const BottomNavigationBarItem(icon: Icon(Icons.mic), label: 'Voice'),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.mic),
+              label: 'Voice',
+            ),
           BottomNavigationBarItem(
             icon: SvgPicture.asset(
               'assets/images/logo.svg',

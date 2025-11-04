@@ -14,7 +14,7 @@
         tools:replace="android:maxSdkVersion" />
 
     <application
-        android:label="Litter Lens"
+        android:label="Eco Metrics"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

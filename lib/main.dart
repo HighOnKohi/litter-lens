@@ -58,7 +58,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      title: 'Litter Lens',
+      title: 'Eco Metrics',
       home: const AuthGate(),
     );
   }

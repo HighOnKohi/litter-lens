@@ -10,6 +10,7 @@ import '../services/account_service.dart';
 import 'package:intl/intl.dart';
 import 'package:litter_lens/theme.dart';
 import 'dart:convert';
+import 'dart:async';
 
 class VoiceTab extends StatefulWidget {
   const VoiceTab({super.key});
@@ -121,8 +122,7 @@ Future<Set<String>> loadKeywordSetOnce(String docId, String fieldName) async {
   // ✅ If local data exists, use it
   if (prefs.containsKey(docId)) {
     final list = prefs.getStringList(docId);
-    final count = list?.length ?? 0;
-    // print('📦 Loaded $docId from local cache — $count items');
+    // print('📦 Loaded $docId from local cache — ${list?.length ?? 0} items');
     // If cached list is empty, attempt to re-fetch from Firestore
     if (list != null && list.isNotEmpty) {
       return list.toSet();
@@ -282,15 +282,19 @@ class VoiceTabState extends State<VoiceTab>
         // Restart listening after error
         if (_isActive) {
           Future.delayed(const Duration(seconds: 1), () {
-            if (_isActive && mounted) _startContinuousListening();
+            if (_isActive && mounted && !_speechToText.isListening) {
+              _startContinuousListening();
+            }
           });
         }
       },
       onStatus: (status) {
         debugPrint("Speech status: $status");
-        if (status == 'notListening' && _isActive && mounted) {
-          // Automatically restart listening
-          Future.delayed(const Duration(milliseconds: 500), () {
+        // Some platforms report 'notListening' or 'done' — restart if our tab is active.
+        if ((status == 'notListening' || status == 'done') &&
+            _isActive &&
+            mounted) {
+          Future.delayed(const Duration(milliseconds: 300), () {
             if (_isActive && !_speechToText.isListening && mounted) {
               _startContinuousListening();
             }
@@ -307,6 +311,12 @@ class VoiceTabState extends State<VoiceTab>
   void _startContinuousListening() async {
     if (!_speechEnabled || !mounted) return;
 
+    // Avoid calling listen if already listening
+    if (_speechToText.isListening) {
+      setState(() => _isActive = true);
+      return;
+    }
+
     setState(() => _isActive = true);
 
     await _speechToText.listen(
@@ -317,9 +327,28 @@ class VoiceTabState extends State<VoiceTab>
       ),
       onResult: (result) {
         if (!mounted) return;
+        // Process recognized words. If this was a final result, restart listening
+        // shortly after to keep continuous capture.
         _processRecognizedWords(result.recognizedWords)
             .then((_) {
-              // Handle any post-processing if needed
+              // If the result is final, many platforms stop listening — restart.
+              try {
+                final bool isFinal = result.finalResult;
+                if (isFinal) {
+                  Future.delayed(const Duration(milliseconds: 250), () {
+                    if (_isActive && mounted && !_speechToText.isListening) {
+                      _startContinuousListening();
+                    }
+                  });
+                }
+              } catch (e) {
+                // If result.finalResult isn't available, conservatively restart
+                Future.delayed(const Duration(milliseconds: 250), () {
+                  if (_isActive && mounted && !_speechToText.isListening) {
+                    _startContinuousListening();
+                  }
+                });
+              }
             })
             .catchError((error) {
               debugPrint('Error processing words: $error');
@@ -730,22 +759,48 @@ class VoiceTabState extends State<VoiceTab>
 
     _isSyncing = true;
     try {
+      // Load all submissions (may include already-synced entries from older versions)
       final submissions = await LocalFileHelper.readAllSubmissions();
       if (submissions.isEmpty) {
         debugPrint("📂 No local submissions to sync.");
         return;
       }
 
-      debugPrint("🌐 Syncing ${submissions.length} local submissions...");
+      // Only attempt those not yet marked as synced
+      final pending = submissions.where((s) => s['synced'] != true).toList();
+      if (pending.isEmpty) {
+        debugPrint('📂 No pending (unsynced) submissions to sync.');
+        // Ensure that if all were synced we clear file to keep storage tidy
+        final anySynced = submissions.any((s) => s['synced'] == true);
+        if (anySynced) {
+          await LocalFileHelper.clearFile();
+        }
+        return;
+      }
 
-      List<Map<String, dynamic>> failed = [];
+      debugPrint(
+        "🌐 Attempting to sync ${pending.length} pending submissions...",
+      );
 
-      for (final submission in submissions) {
+      // We'll keep submissions in memory and persist attempt metadata as we go
+
+      for (final submission in pending) {
+        // Persist attempt metadata before trying to upload so the attempt is durable
+        try {
+          submission['lastAttemptMs'] = DateTime.now().millisecondsSinceEpoch;
+          submission['attemptCount'] =
+              (submission['attemptCount'] as int? ?? 0) + 1;
+          // write current state for durability
+          await LocalFileHelper.writeAllSubmissions(submissions);
+        } catch (e) {
+          debugPrint('⚠️ Could not persist attempt metadata: $e');
+        }
+
         try {
           final subId =
               (submission['subdivisionId'] as String?) ?? '2k2oae09diska';
-
           final inputStreet = (submission['streetName'] as String?) ?? '';
+
           // Use fuzzy matching to find the best street within the subdivision
           final matches = await StreetDataService.findMatches(
             inputStreet,
@@ -759,21 +814,30 @@ class VoiceTabState extends State<VoiceTab>
           }
 
           final best = matches.first.street;
-
-          // Consult _last meta to avoid duplicate uploads (if same fillRate/day)
-          // We rely on submitReport's transaction-side _last check, but do a small
-          // pre-check to avoid unnecessary work.
           final fullness = (submission['fullnessLevel'] as String?) ?? '';
 
           await StreetDataService.submitReport(subId, best.id, fullness);
+
+          // On success, mark this submission as synced and persist immediately
+          submission['synced'] = true;
+          try {
+            await LocalFileHelper.writeAllSubmissions(submissions);
+          } catch (e) {
+            debugPrint('⚠️ Failed to persist synced flag after upload: $e');
+          }
         } catch (e) {
           debugPrint("❌ Failed to sync submission: $e");
-          failed.add(Map<String, dynamic>.from(submission));
+          // leave submission as-is (with updated attempt metadata) for future retries
           continue;
         }
       }
 
-      if (failed.isEmpty) {
+      // Remove synced submissions and keep only failed/remaining ones
+      final remaining = submissions
+          .where((s) => s['synced'] != true)
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      if (remaining.isEmpty) {
         await LocalFileHelper.clearFile();
         debugPrint("✅ All local submissions synced and file cleared.");
         try {
@@ -781,10 +845,9 @@ class VoiceTabState extends State<VoiceTab>
         } catch (e) {}
         if (mounted) setState(() => _statusMessage = "All local data synced.");
       } else {
-        // Overwrite local file with only failed submissions
-        await LocalFileHelper.writeAllSubmissions(failed);
+        await LocalFileHelper.writeAllSubmissions(remaining);
         debugPrint(
-          "⚠️ Some submissions failed. ${failed.length} kept for retry.",
+          "⚠️ Some submissions failed. ${remaining.length} kept for retry.",
         );
         if (mounted)
           setState(

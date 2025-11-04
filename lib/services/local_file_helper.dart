@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 
@@ -48,6 +49,20 @@ class LocalFileHelper {
       ).format(DateTime.now());
     }
 
+    // Add persistent per-submission metadata to support Option A (no re-submit):
+    // - id: unique identifier for this submission
+    // - synced: whether this submission has been uploaded successfully
+    // - attemptCount: how many upload attempts have been made
+    // - lastAttemptMs: timestamp of last attempt (ms since epoch)
+    if (!normalized.containsKey('id') || normalized['id'] == null) {
+      final rnd = Random();
+      normalized['id'] =
+          '${DateTime.now().millisecondsSinceEpoch}-${rnd.nextInt(1 << 32)}';
+    }
+    normalized.putIfAbsent('synced', () => false);
+    normalized.putIfAbsent('attemptCount', () => 0);
+    normalized.putIfAbsent('lastAttemptMs', () => null);
+
     // Consider a submission duplicate if streetName + fullnessLevel + recordedDate all match.
     final normalizedStreet = (normalized['streetName'] ?? '')
         .toString()
@@ -87,7 +102,19 @@ class LocalFileHelper {
     if (content.isEmpty) return [];
 
     final List<dynamic> data = jsonDecode(content);
-    return data.map((e) => Map<String, dynamic>.from(e)).toList();
+    // Ensure older submissions have the new metadata fields
+    return data.map((e) {
+      final map = Map<String, dynamic>.from(e);
+      if (!map.containsKey('id') || map['id'] == null) {
+        final rnd = Random();
+        map['id'] =
+            '${DateTime.now().millisecondsSinceEpoch}-${rnd.nextInt(1 << 32)}';
+      }
+      map.putIfAbsent('synced', () => false);
+      map.putIfAbsent('attemptCount', () => 0);
+      map.putIfAbsent('lastAttemptMs', () => null);
+      return map;
+    }).toList();
   }
 
   static Future<void> clearFile() async {

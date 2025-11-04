@@ -105,11 +105,11 @@ class _MoreTabState extends State<MoreTab> {
   }
 
   Widget buildMoreTile(
-      IconData icon,
-      String title, {
-        Color? color,
-        VoidCallback? onTap,
-      }) {
+    IconData icon,
+    String title, {
+    Color? color,
+    VoidCallback? onTap,
+  }) {
     return ListTile(
       leading: Icon(icon, color: color ?? const Color(0xFF0B8A4D)),
       title: Text(title),
@@ -141,13 +141,13 @@ class _MoreTabState extends State<MoreTab> {
 
       Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginPage()),
-            (_) => false,
+        (_) => false,
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to log out: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to log out: $e')));
     } finally {
       _loggingOut = false;
     }
@@ -205,29 +205,28 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 12),
 
-          buildSectionTitle("HOA Management"),
-          Card(
-            color: const Color(0xFFEEFFF7),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                buildMoreTile(
-                  Icons.analytics_rounded,
-                  "Analytics",
-                  onTap: () => widget.onNavigateTo(3),
-                ),
-                buildMoreTile(
-                  Icons.question_mark_rounded,
-                  "Guide",
-                  onTap: () => widget.onNavigateTo(5),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
+          // buildSectionTitle("HOA Management"),
+          // Card(
+          //   color: const Color(0xFFEEFFF7),
+          //   shape: RoundedRectangleBorder(
+          //     borderRadius: BorderRadius.circular(12),
+          //   ),
+          //   child: Column(
+          //     children: [
+          //       buildMoreTile(
+          //         Icons.analytics_rounded,
+          //         "Analytics",
+          //         onTap: () => widget.onNavigateTo(3),
+          //       ),
+          //       buildMoreTile(
+          //         Icons.question_mark_rounded,
+          //         "Guide",
+          //         onTap: () => widget.onNavigateTo(5),
+          //       ),
+          //     ],
+          //   ),
+          // ),
+          // const SizedBox(height: 12),
           buildSectionTitle("Help"),
           Card(
             color: const Color(0xFFEEFFF7),
@@ -236,22 +235,22 @@ class _MoreTabState extends State<MoreTab> {
             ),
             child: Column(
               children: [
-                buildMoreTile(
-                  Icons.info,
-                  "About",
-                  onTap: () => widget.onNavigateTo(4),
-                ),
+                // buildMoreTile(
+                //   Icons.info,
+                //   "About",
+                //   onTap: () => widget.onNavigateTo(4),
+                // ),
                 buildMoreTile(Icons.lightbulb, "Tutorial", onTap: () {}),
-                buildMoreTile(
-                  Icons.question_mark_rounded,
-                  "Client Guide",
-                  onTap: () {},
-                ),
-                buildMoreTile(
-                  Icons.question_answer_rounded,
-                  "FAQ",
-                  onTap: () {},
-                ),
+                // buildMoreTile(
+                //   Icons.question_mark_rounded,
+                //   "Client Guide",
+                //   onTap: () {},
+                // ),
+                // buildMoreTile(
+                //   Icons.question_answer_rounded,
+                //   "FAQ",
+                //   onTap: () {},
+                // ),
                 buildMoreTile(
                   Icons.support_agent_rounded,
                   "Support",
@@ -262,23 +261,22 @@ class _MoreTabState extends State<MoreTab> {
           ),
           const SizedBox(height: 20),
 
-          if (_roleLoaded && _isAdmin == true) ...[
-            buildSectionTitle("Developer Settings"),
-            Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  buildMoreTile(Icons.info, "Client Information", onTap: () {}),
-                  buildMoreTile(Icons.list, "Logs", onTap: () {}),
-                  buildMoreTile(Icons.cached, "Cache Actions", onTap: () {}),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-
+          // if (_roleLoaded && _isAdmin == true) ...[
+          //   buildSectionTitle("Developer Settings"),
+          //   Card(
+          //     shape: RoundedRectangleBorder(
+          //       borderRadius: BorderRadius.circular(12),
+          //     ),
+          //     child: Column(
+          //       children: [
+          //         buildMoreTile(Icons.info, "Client Information", onTap: () {}),
+          //         buildMoreTile(Icons.list, "Logs", onTap: () {}),
+          //         buildMoreTile(Icons.cached, "Cache Actions", onTap: () {}),
+          //       ],
+          //     ),
+          //   ),
+          //   const SizedBox(height: 20),
+          // ],
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
